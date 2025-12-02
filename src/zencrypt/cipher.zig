@@ -23,6 +23,8 @@ pub const Method = enum {
     XChaCha20Poly1305,
 };
 
+const MAX_MSG_SIZE = 100 * 1024 * 1024;
+
 pub fn keySize(method: Method) usize {
     return switch (method) {
         .None => 0,
@@ -55,32 +57,41 @@ pub fn tagSize(method: Method) usize {
     };
 }
 
+/// Reads plaintext from `reader`, encrypts it, and writes the result (Nonce + Ciphertext + Tag) to `writer`.
+/// Note: This buffers the entire message in memory to satisfy block padding and AEAD requirements.
 pub fn encrypt(
     allocator: std.mem.Allocator,
     method: Method,
     key: []const u8,
-    message: []const u8,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
     associated_data: []const u8,
-) ![]u8 {
+) !void {
     if (method != .None and key.len != keySize(method)) return error.InvalidKeySize;
-    
+
+    var message_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer message_buffer.deinit();
+
+    const message_len = try reader.stream(&message_buffer.writer, .limited(MAX_MSG_SIZE));
+    const message = message_buffer.written();
+
     const nonce_len = nonceSize(method);
     const tag_len = tagSize(method);
-    var out_len = nonce_len + message.len + tag_len;
-    
+    var out_len = nonce_len + message_len + tag_len;
+
     const block_size: usize = switch (method) {
         .Aes128Cbc, .Aes256Cbc => algorithms.aes_cbc.block_size,
         .Xtea => algorithms.xtea.block_size,
         else => 0,
     };
-    
+
     if (block_size > 0) {
-        const padding = block_size - (message.len % block_size);
+        const padding = block_size - (message_len % block_size);
         out_len += padding;
     }
 
     const out = try allocator.alloc(u8, out_len);
-    errdefer allocator.free(out);
+    defer allocator.free(out);
 
     // Generate Nonce
     if (nonce_len > 0) {
@@ -90,13 +101,13 @@ pub fn encrypt(
 
     // Copy message to output buffer (after nonce)
     const msg_start = nonce_len;
-    @memcpy(out[msg_start..msg_start+message.len], message);
-    
+    @memcpy(out[msg_start .. msg_start + message_len], message_buffer.written());
+
     // Apply padding if needed
     if (block_size > 0) {
-        const padding = block_size - (message.len % block_size);
+        const padding = block_size - (message_len % block_size);
         const pad_byte: u8 = @intCast(padding);
-        for (out[msg_start+message.len..out.len - tag_len]) |*b| b.* = pad_byte;
+        for (out[msg_start + message_len .. out.len - tag_len]) |*b| b.* = pad_byte;
     }
 
     const ciphertext = out[nonce_len..(out_len - tag_len)];
@@ -114,24 +125,35 @@ pub fn encrypt(
         .XChaCha20Poly1305 => algorithms.chacha.encryptPoly1305(ciphertext, tag, message, associated_data, nonce, key),
     }
 
-    return out;
+    // Write the full result to the writer
+    try writer.writeAll(out);
 }
 
+/// Reads encrypted data (Nonce + Ciphertext + Tag) from `reader`, decrypts it, and writes the plaintext to `writer`.
+/// Note: This buffers the entire ciphertext in memory to verify AEAD tags before releasing any data.
 pub fn decrypt(
     allocator: std.mem.Allocator,
     method: Method,
     key: []const u8,
-    data: []const u8,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
     associated_data: []const u8,
-) ![]u8 {
+) !void {
     if (method != .None and key.len != keySize(method)) return error.InvalidKeySize;
-    
+
+    var data_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer data_buffer.deinit();
+
+    const data_len = try reader.stream(&data_buffer.writer, .limited(MAX_MSG_SIZE));
+
+    const data = data_buffer.written();
+
     const nonce_len = nonceSize(method);
-    if (data.len < nonce_len) return error.InvalidCiphertext;
+    if (data_len < nonce_len) return error.InvalidCiphertext;
 
     const nonce = data[0..nonce_len];
     const ciphertext_and_tag = data[nonce_len..];
-    
+
     const tag_len = tagSize(method);
     if (ciphertext_and_tag.len < tag_len) return error.InvalidCiphertext;
 
@@ -139,8 +161,9 @@ pub fn decrypt(
     const ciphertext = ciphertext_and_tag[0..ciphertext_len];
     const tag = ciphertext_and_tag[ciphertext_len..];
 
-    const out = try allocator.alloc(u8, ciphertext_len);
-    errdefer allocator.free(out);
+    var out = try allocator.alloc(u8, ciphertext_len);
+    defer allocator.free(out);
+
     @memcpy(out, ciphertext);
 
     switch (method) {
@@ -161,36 +184,30 @@ pub fn decrypt(
         else => 0,
     };
 
+    // Validate and remove padding
+    var final_len = out.len;
     if (block_size > 0) {
         if (out.len == 0) return error.InvalidPadding;
         const pad_len = out[out.len - 1];
         if (pad_len == 0 or pad_len > block_size or pad_len > out.len) return error.InvalidPadding;
-        
+
         for (out[out.len - pad_len .. out.len]) |b| {
             if (b != pad_len) return error.InvalidPadding;
         }
-        
-        if (allocator.resize(out, out.len - pad_len)) {
-            return out[0 .. out.len - pad_len];
-        } else {
-            const new_out = try allocator.dupe(u8, out[0 .. out.len - pad_len]);
-            allocator.free(out);
-            return new_out;
-        }
+        final_len -= pad_len;
     }
 
-    return out;
+    try writer.writeAll(out[0..final_len]);
 }
 
-test "encrypt/decrypt all methods" {
+test "encrypt/decrypt all methods with streams" {
     const allocator = std.testing.allocator;
     const key_32 = "01234567890123456789012345678901"; // 32 bytes
     const key_16 = "0123456789012345"; // 16 bytes
-    
+
     const msg = "Hello, cryptographic world!";
     const ad = "metadata";
 
-    // Define test cases
     const TestCase = struct {
         method: Method,
         key: []const u8,
@@ -210,35 +227,65 @@ test "encrypt/decrypt all methods" {
     };
 
     for (cases) |case| {
-        // Encrypt
-        const encrypted = try encrypt(allocator, case.method, case.key, msg, ad);
-        defer allocator.free(encrypted);
+        // --- Encrypt ---
+        var buffer_allocating: std.Io.Writer.Allocating = .init(allocator);
+        defer buffer_allocating.deinit();
 
-        // Decrypt
-        const decrypted = try decrypt(allocator, case.method, case.key, encrypted, ad);
-        defer allocator.free(decrypted);
+        // Create a Reader from the plaintext string
+        var reader: std.Io.Reader = .fixed(msg);
 
-        // Verify
-        try std.testing.expectEqualStrings(msg, decrypted);
+        try encrypt(allocator, case.method, case.key, &reader, &buffer_allocating.writer, ad);
+
+        // --- Decrypt ---
+        var decrypted_list: std.Io.Writer.Allocating = .init(allocator);
+        defer decrypted_list.deinit();
+
+        // Create a Reader from the encrypted bytes
+        var decrypt_reader: std.Io.Reader = .fixed(buffer_allocating.written());
+
+        try decrypt(allocator, case.method, case.key, &decrypt_reader, &decrypted_list.writer, ad);
+
+        // --- Verify ---
+        try std.testing.expectEqualStrings(msg, decrypted_list.written());
     }
 }
 
-test "padding validation" {
+test "padding validation stream" {
     const allocator = std.testing.allocator;
     const key = "0123456789012345";
-    
+
     const msg = "123456789012345"; // 15 bytes
-    const encrypted = try encrypt(allocator, .Aes128Cbc, key, msg, "");
-    defer allocator.free(encrypted);
-    
+
+    // Encrypt
+    var encrypted_list: std.Io.Writer.Allocating = .init(allocator);
+    defer encrypted_list.deinit();
+
+    var in_stream: std.Io.Reader = .fixed(msg);
+    try encrypt(allocator, .Aes128Cbc, key, &in_stream, &encrypted_list.writer, "");
+
     // Tamper with the last byte of ciphertext
-    var bad_encrypted = try allocator.dupe(u8, encrypted);
-    defer allocator.free(bad_encrypted);
-    
-    bad_encrypted[bad_encrypted.len - 1] ^= 0x01; 
-    
+    var encrypted = encrypted_list.written();
+    encrypted[encrypted.len - 1] ^= 0x01;
+
+    // Attempt Decrypt
+    var decrypted_list: std.Io.Writer.Allocating = .init(allocator);
+    defer decrypted_list.deinit();
+
+    var enc_stream: std.Io.Reader = .fixed(encrypted);
+
     // Expect error
-    try std.testing.expectError(error.InvalidPadding, decrypt(allocator, .Aes128Cbc, key, bad_encrypted, ""));
+    try std.testing.expectError(error.InvalidPadding, decrypt(allocator, .Aes128Cbc, key, &enc_stream, &decrypted_list.writer, ""));
+}
+
+test "invalid key size error stream" {
+    const allocator = std.testing.allocator;
+    const key_bad = "123";
+
+    var in_stream: std.Io.Reader = .fixed("msg");
+    var out_list: std.Io.Writer.Allocating = .init(allocator);
+    defer out_list.deinit();
+
+    try std.testing.expectError(error.InvalidKeySize, encrypt(allocator, .Aes128Gcm, key_bad, &in_stream, &out_list.writer, ""));
 }
 
 test "keySize values" {
@@ -261,10 +308,4 @@ test "tagSize values" {
     try std.testing.expectEqual(@as(usize, 16), tagSize(.Aes128Gcm));
     try std.testing.expectEqual(@as(usize, 16), tagSize(.XChaCha20Poly1305));
     try std.testing.expectEqual(@as(usize, 0), tagSize(.Xor));
-}
-
-test "invalid key size error" {
-    const allocator = std.testing.allocator;
-    const key_bad = "123";
-    try std.testing.expectError(error.InvalidKeySize, encrypt(allocator, .Aes128Gcm, key_bad, "msg", ""));
 }

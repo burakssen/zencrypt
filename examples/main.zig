@@ -1,99 +1,148 @@
 const std = @import("std");
-const ze = @import("zencrypt");
+const ze = @import("zencrypt"); // Assumes your library is exposed as 'zencrypt'
 
 pub fn main() !void {
+    // 1. Setup Memory Allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("Zencrypt Library Demonstration\n", .{});
-    std.debug.print("==============================\n\n", .{});
+    std.debug.print("\n=== Zencrypt Full Demo ===\n", .{});
 
-    // --- Password Hashing ---
+    // --- Scenario A: User Passwords ---
     try demoPassword(allocator);
 
-    // --- Symmetric Encryption ---
-    const message = "This is a secret message verified by Zencrypt!";
-    const ad = "header-data";
+    // --- Scenario B: InMemory String Encryption ---
+    try demoStringEncryption(allocator);
 
-    // 16-byte keys
-    const key16 = "0123456789abcdef"; 
-    // 32-byte keys
-    const key32 = "0123456789abcdef0123456789abcdef";
-
-    // Simple/Lightweight
-    try demoCipher(allocator, .Xor, key16, message, ad);
-    try demoCipher(allocator, .Xtea, key16, message, ad);
-    
-    // AES Family
-    try demoCipher(allocator, .Aes128Cbc, key16, message, ad);
-    try demoCipher(allocator, .Aes256Cbc, key32, message, ad);
-    try demoCipher(allocator, .Aes128Gcm, key16, message, ad);
-    try demoCipher(allocator, .Aes256Gcm, key32, message, ad);
-
-    // Stream Ciphers
-    try demoCipher(allocator, .Salsa20, key32, message, ad);
-    try demoCipher(allocator, .ChaCha20, key32, message, ad);
-    try demoCipher(allocator, .XChaCha20, key32, message, ad);
-    
-    // Modern AEAD
-    try demoCipher(allocator, .XChaCha20Poly1305, key32, message, ad);
+    // --- Scenario C: File Encryption ---
+    // We will create a dummy file, encrypt it, then decrypt it.
+    try demoFileEncryption(allocator);
 }
 
+/// Scenario A: Hashing and Verifying Passwords
 fn demoPassword(allocator: std.mem.Allocator) !void {
-    std.debug.print("--- Password Hashing (Argon2) ---\n", .{});
-    const password = "CorrectHorseBatteryStaple";
-    std.debug.print("Password:  {s}\n", .{password});
+    std.debug.print("\n[A] Password Hashing (Argon2)\n", .{});
 
-    const hash = try ze.password.hash(allocator, password, .default);
+    const plain_password = "correct-horse-battery-staple";
+
+    // 1. Hash
+    // The library handles salt generation automatically.
+    const hash = try ze.password.hash(allocator, plain_password, .default);
     defer allocator.free(hash);
-    std.debug.print("Hash:      {s}\n", .{hash});
+    std.debug.print("   > Hashed: {s}\n", .{hash});
 
-    try ze.password.verify(allocator, password, hash);
-    std.debug.print("Verify:    OK\n\n", .{});
+    // 2. Verify
+    // Takes the plain text and the stored hash string.
+    try ze.password.verify(allocator, plain_password, hash);
+    std.debug.print("   > Verification: SUCCESS\n", .{});
 }
 
-fn demoCipher(
-    allocator: std.mem.Allocator, 
-    method: ze.cipher.Method, 
-    key: []const u8, 
-    message: []const u8,
-    ad: []const u8
-) !void {
-    std.debug.print("--- {s} ---\n", .{@tagName(method)});
-    
-    // Encrypt
-    const encrypted = try ze.cipher.encrypt(allocator, method, key, message, ad);
-    defer allocator.free(encrypted);
+/// Scenario B: Encrypting Strings in Memory
+fn demoStringEncryption(allocator: std.mem.Allocator) !void {
+    std.debug.print("\n[B] String Encryption (XChaCha20-Poly1305)\n", .{});
 
-    std.debug.print("Message:   {s}\n", .{message});
-    // Print key preview just to show it's being used
-    if (key.len > 8) {
-        std.debug.print("Key:       {s}...\n", .{key[0..8]});
+    const key = "0123456789abcdef0123456789abcdef"; // 32 bytes
+    const message = "The quick brown fox jumps over the lazy dog";
+    const aad = "header-v1"; // Optional Associated Data
+
+    // --- Encrypt ---
+    var ciphertext_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer ciphertext_buffer.deinit();
+
+    // Create a stream reader from the const string
+    var msg_stream: std.Io.Reader = .fixed(message);
+
+    try ze.cipher.encrypt(allocator, .XChaCha20Poly1305, key, &msg_stream, &ciphertext_buffer.writer, aad);
+
+    const ciphertext = ciphertext_buffer.written();
+
+    std.debug.print("   > Encrypted Size: {d} bytes (Nonce + Msg + Tag)\n", .{ciphertext.len});
+
+    // --- Decrypt ---
+    var plaintext_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer plaintext_buffer.deinit();
+
+    // Create a stream reader from the encrypted byte array
+    var cipher_stream: std.Io.Reader = .fixed(ciphertext);
+
+    try ze.cipher.decrypt(allocator, .XChaCha20Poly1305, key, &cipher_stream, &plaintext_buffer.writer, aad);
+
+    const plaintext = plaintext_buffer.written();
+
+    std.debug.print("   > Decrypted: {s}\n", .{plaintext});
+}
+
+/// Scenario C: Encrypting Files on Disk
+fn demoFileEncryption(allocator: std.mem.Allocator) !void {
+    std.debug.print("\n[C] File Encryption (AES-256-GCM)\n", .{});
+
+    const key = "0123456789abcdef0123456789abcdef"; // 32 bytes
+    const cwd = std.fs.cwd();
+
+    // 1. Create a dummy file to encrypt
+    const secret_content = "This is confidential file data stored on disk.";
+    try cwd.writeFile(.{ .sub_path = "secret.txt", .data = secret_content });
+    std.debug.print("   > Created 'secret.txt'\n", .{});
+
+    // 2. Encrypt: secret.txt -> secret.enc
+    {
+        var in_file = try cwd.openFile("secret.txt", .{});
+        defer in_file.close();
+
+        var in_file_buffer: [1024]u8 = undefined;
+        var in_file_reader = in_file.reader(&in_file_buffer);
+        const reader = &in_file_reader.interface;
+
+        var out_file = try cwd.createFile("secret.enc", .{});
+        defer out_file.close();
+
+        var out_file_buffer: [1024]u8 = undefined;
+        var out_file_writer = out_file.writer(&out_file_buffer);
+        const writer = &out_file_writer.interface;
+
+        try ze.cipher.encrypt(allocator, .Aes256Gcm, // Using AES for this example
+            key, reader, writer, "" // No AAD
+        );
+        std.debug.print("   > Encrypted to 'secret.enc'\n", .{});
+
+        try writer.flush();
+    }
+
+    // 3. Decrypt: secret.enc -> secret.dec
+    {
+        var in_file = try cwd.openFile("secret.enc", .{});
+        defer in_file.close();
+
+        var in_file_buffer: [1024]u8 = undefined;
+        var in_file_reader = in_file.reader(&in_file_buffer);
+        const reader = &in_file_reader.interface;
+
+        var out_file = try cwd.createFile("secret.dec", .{});
+        defer out_file.close();
+
+        var out_file_buffer: [1024]u8 = undefined;
+        var out_file_writer = out_file.writer(&out_file_buffer);
+        const writer = &out_file_writer.interface;
+
+        try ze.cipher.decrypt(allocator, .Aes256Gcm, key, reader, writer, "");
+        std.debug.print("   > Decrypted to 'secret.dec'\n", .{});
+
+        try writer.flush();
+    }
+
+    // 4. Verification check
+    const check = try cwd.readFileAlloc(allocator, "secret.dec", 1024);
+    defer allocator.free(check);
+
+    if (std.mem.eql(u8, check, secret_content)) {
+        std.debug.print("   > File Integrity Check: PASSED\n", .{});
     } else {
-        std.debug.print("Key:       {s}\n", .{key});
+        std.debug.print("   > File Integrity Check: FAILED\n", .{});
     }
-    
-    // Print hex preview of ciphertext (first 32 bytes or all if shorter)
-    const preview_len = @min(encrypted.len, 32);
-    std.debug.print("Encrypted: ", .{});
-    for (encrypted[0..preview_len]) |b| {
-        std.debug.print("{x:0>2}", .{b});
-    }
-    if (encrypted.len > preview_len) {
-        std.debug.print("... ({d} bytes total)", .{encrypted.len});
-    }
-    std.debug.print("\n", .{});
 
-    // Decrypt
-    const decrypted = try ze.cipher.decrypt(allocator, method, key, encrypted, ad);
-    defer allocator.free(decrypted);
-
-    std.debug.print("Decrypted: {s}\n", .{decrypted});
-    
-    if (!std.mem.eql(u8, message, decrypted)) {
-        std.debug.print("Result:    FAILED (Mismatch)\n\n", .{});
-        return error.DemoFailed;
-    }
-    std.debug.print("Result:    OK\n\n", .{});
+    // Cleanup files
+    try cwd.deleteFile("secret.txt");
+    try cwd.deleteFile("secret.enc");
+    try cwd.deleteFile("secret.dec");
 }
