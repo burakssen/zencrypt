@@ -37,7 +37,7 @@ pub const Impl = union(CryptorType) {
     None: void,
     Xor: algorithms.Xor,
     Des: algorithms.Des,
-    TripleDes: void,
+    TripleDes: algorithms.TripleDes,
     Idea: void,
     Aes: void,
     AesGcm: void,
@@ -61,7 +61,7 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .None => .None,
         .Xor => Cryptor.Impl{ .Xor = algorithms.Xor.init(allocator) },
         .Des => Cryptor.Impl{ .Des = algorithms.Des{} },
-        .TripleDes => .TripleDes,
+        .TripleDes => Cryptor.Impl{ .TripleDes = algorithms.TripleDes{} },
         .Idea => .Idea,
         .Aes => .Aes,
         .AesGcm => .AesGcm,
@@ -103,7 +103,8 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .None => unreachable, // Handled above
         .Xor => |*xor| return xor.encrypt(reader, writer, derived_key.key),
         .Des => |*des| return des.encrypt(reader, writer, derived_key.key),
-        .TripleDes, .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .TripleDes => |*tdes| return tdes.encrypt(reader, writer, derived_key.key),
+        .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -137,7 +138,8 @@ pub fn decrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .None => unreachable, // Handled above
         .Xor => |*xor| return xor.decrypt(reader, writer, derived_key.key),
         .Des => |*des| return des.decrypt(reader, writer, derived_key.key),
-        .TripleDes, .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .TripleDes => |*tdes| return tdes.decrypt(reader, writer, derived_key.key),
+        .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 

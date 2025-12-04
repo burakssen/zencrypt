@@ -1,200 +1,12 @@
 const std = @import("std");
 
+const common = @import("common/des.zig");
+
 const Des = @This();
 
-const IP: [64]u8 = .{
-    58, 50, 42, 34, 26, 18, 10, 2,
-    60, 52, 44, 36, 28, 20, 12, 4,
-    62, 54, 46, 38, 30, 22, 14, 6,
-    64, 56, 48, 40, 32, 24, 16, 8,
-    57, 49, 41, 33, 25, 17, 9,  1,
-    59, 51, 43, 35, 27, 19, 11, 3,
-    61, 53, 45, 37, 29, 21, 13, 5,
-    63, 55, 47, 39, 31, 23, 15, 7,
-};
-
-const FP: [64]u8 = .{
-    40, 8, 48, 16, 56, 24, 64, 32,
-    39, 7, 47, 15, 55, 23, 63, 31,
-    38, 6, 46, 14, 54, 22, 62, 30,
-    37, 5, 45, 13, 53, 21, 61, 29,
-    36, 4, 44, 12, 52, 20, 60, 28,
-    35, 3, 43, 11, 51, 19, 59, 27,
-    34, 2, 42, 10, 50, 18, 58, 26,
-    33, 1, 41, 9,  49, 17, 57, 25,
-};
-
-const E: [48]u8 = .{
-    32, 1,  2,  3,  4,  5,
-    4,  5,  6,  7,  8,  9,
-    8,  9,  10, 11, 12, 13,
-    12, 13, 14, 15, 16, 17,
-    16, 17, 18, 19, 20, 21,
-    20, 21, 22, 23, 24, 25,
-    24, 25, 26, 27, 28, 29,
-    28, 29, 30, 31, 32, 1,
-};
-
-const P: [32]u8 = .{
-    16, 7,  20, 21, 29, 12, 28, 17,
-    1,  15, 23, 26, 5,  18, 31, 10,
-    2,  8,  24, 14, 32, 27, 3,  9,
-    19, 13, 30, 6,  22, 11, 4,  25,
-};
-
-const PC1: [56]u8 = .{
-    57, 49, 41, 33, 25, 17, 9,
-    1,  58, 50, 42, 34, 26, 18,
-    10, 2,  59, 51, 43, 35, 27,
-    19, 11, 3,  60, 52, 44, 36,
-    63, 55, 47, 39, 31, 23, 15,
-    7,  62, 54, 46, 38, 30, 22,
-    14, 6,  61, 53, 45, 37, 29,
-    21, 13, 5,  28, 20, 12, 4,
-};
-
-const PC2: [48]u8 = .{
-    14, 17, 11, 24, 1,  5,
-    3,  28, 15, 6,  21, 10,
-    23, 19, 12, 4,  26, 8,
-    16, 7,  27, 20, 13, 2,
-    41, 52, 31, 37, 47, 55,
-    30, 40, 51, 45, 33, 48,
-    44, 49, 39, 56, 34, 53,
-    46, 42, 50, 36, 29, 32,
-};
-
-const SHIFTS: [16]u5 = .{ 1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1 };
-
-const S: [8][4][16]u8 = .{
-    .{
-        .{ 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7 },
-        .{ 0, 15, 7, 4, 14, 2, 13, 1, 10, 6, 12, 11, 9, 5, 3, 8 },
-        .{ 4, 1, 14, 8, 13, 6, 2, 11, 15, 12, 9, 7, 3, 10, 5, 0 },
-        .{ 15, 12, 8, 2, 4, 9, 1, 7, 5, 11, 3, 14, 10, 0, 6, 13 },
-    },
-    .{
-        .{ 15, 1, 8, 14, 6, 11, 3, 4, 9, 7, 2, 13, 12, 0, 5, 10 },
-        .{ 3, 13, 4, 7, 15, 2, 8, 14, 12, 0, 1, 10, 6, 9, 11, 5 },
-        .{ 0, 14, 7, 11, 10, 4, 13, 1, 5, 8, 12, 6, 9, 3, 2, 15 },
-        .{ 13, 8, 10, 1, 3, 15, 4, 2, 11, 6, 7, 12, 0, 5, 14, 9 },
-    },
-    .{
-        .{ 10, 0, 9, 14, 6, 3, 15, 5, 1, 13, 12, 7, 11, 4, 2, 8 },
-        .{ 13, 7, 0, 9, 3, 4, 6, 10, 2, 8, 5, 14, 12, 11, 15, 1 },
-        .{ 13, 6, 4, 9, 8, 15, 3, 0, 11, 1, 2, 12, 5, 10, 14, 7 },
-        .{ 1, 10, 13, 0, 6, 9, 8, 7, 4, 15, 14, 3, 11, 5, 2, 12 },
-    },
-    .{
-        .{ 7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15 },
-        .{ 13, 8, 11, 5, 6, 15, 0, 3, 4, 7, 2, 12, 1, 10, 14, 9 },
-        .{ 10, 6, 9, 0, 12, 11, 7, 13, 15, 1, 3, 14, 5, 2, 8, 4 },
-        .{ 3, 15, 0, 6, 10, 1, 13, 8, 9, 4, 5, 11, 12, 7, 2, 14 },
-    },
-    .{
-        .{ 2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9 },
-        .{ 14, 11, 2, 12, 4, 7, 13, 1, 5, 0, 15, 10, 3, 9, 8, 6 },
-        .{ 4, 2, 1, 11, 10, 13, 7, 8, 15, 9, 12, 5, 6, 3, 0, 14 },
-        .{ 11, 8, 12, 7, 1, 14, 2, 13, 6, 15, 0, 9, 10, 4, 5, 3 },
-    },
-    .{
-        .{ 12, 1, 10, 15, 9, 2, 6, 8, 0, 13, 3, 4, 14, 7, 5, 11 },
-        .{ 10, 15, 4, 2, 7, 12, 9, 5, 6, 1, 13, 14, 0, 11, 3, 8 },
-        .{ 9, 14, 15, 5, 2, 8, 12, 3, 7, 0, 4, 10, 1, 13, 11, 6 },
-        .{ 4, 3, 2, 12, 9, 5, 15, 10, 11, 14, 1, 7, 6, 0, 8, 13 },
-    },
-    .{
-        .{ 4, 11, 2, 14, 15, 0, 8, 13, 3, 12, 9, 7, 5, 10, 6, 1 },
-        .{ 13, 0, 11, 7, 4, 9, 1, 10, 14, 3, 5, 12, 2, 15, 8, 6 },
-        .{ 1, 4, 11, 13, 12, 3, 7, 14, 10, 15, 6, 8, 0, 5, 9, 2 },
-        .{ 6, 11, 13, 8, 1, 4, 10, 7, 9, 5, 0, 15, 14, 2, 3, 12 },
-    },
-    .{
-        .{ 13, 2, 8, 4, 6, 15, 11, 1, 10, 9, 3, 14, 5, 0, 12, 7 },
-        .{ 1, 15, 13, 8, 10, 3, 7, 4, 12, 5, 6, 11, 0, 14, 9, 2 },
-        .{ 7, 11, 4, 1, 9, 12, 14, 2, 0, 6, 10, 13, 15, 3, 5, 8 },
-        .{ 2, 1, 14, 7, 4, 10, 8, 13, 15, 12, 9, 0, 3, 5, 6, 11 },
-    },
-};
-
-fn permute(input: u64, table: []const u8, out_bits: u8) u64 {
-    var output: u64 = 0;
-    for (table, 0..) |pos, i| {
-        const bit = (input >> @intCast(64 - pos)) & 1;
-        output |= bit << @intCast(out_bits - 1 - i);
-    }
-    return output;
-}
-
-fn leftRotate28(val: u32, shift: u5) u32 {
-    return ((val << shift) | (val >> (28 - shift))) & 0x0FFFFFFF;
-}
-
-fn generateSubkeys(key: u64) [16]u48 {
-    var subkeys: [16]u48 = undefined;
-
-    const permuted_key = permute(key, &PC1, 56);
-    var c: u32 = @intCast((permuted_key >> 28) & 0x0FFFFFFF);
-    var d: u32 = @intCast(permuted_key & 0x0FFFFFFF);
-
-    for (0..16) |i| {
-        c = leftRotate28(c, SHIFTS[i]);
-        d = leftRotate28(d, SHIFTS[i]);
-
-        const cd: u64 = (@as(u64, c) << 28) | @as(u64, d);
-        subkeys[i] = @intCast(permute(cd, &PC2, 48));
-    }
-
-    return subkeys;
-}
-
-fn feistel(right: u32, subkey: u48) u32 {
-    const expanded = permute(@as(u64, right) << 32, &E, 48);
-
-    const xored = expanded ^ subkey;
-
-    var sbox_out: u32 = 0;
-    for (0..8) |i| {
-        const block = @as(u8, @intCast((xored >> @intCast(42 - i * 6)) & 0x3F));
-        const row = ((block & 0x20) >> 4) | (block & 0x01);
-        const col = (block >> 1) & 0x0F;
-        const val = S[i][row][col];
-        sbox_out |= @as(u32, val) << @intCast(28 - i * 4);
-    }
-
-    return @intCast(permute(@as(u64, sbox_out) << 32, &P, 32));
-}
-
-fn processBlock(block: u64, subkeys: [16]u48, dec: bool) u64 {
-    const permuted = permute(block, &IP, 64);
-
-    var left: u32 = @intCast(permuted >> 32);
-    var right: u32 = @intCast(permuted & 0xFFFFFFFF);
-
-    for (0..16) |i| {
-        const round = if (dec) 15 - i else i;
-        const temp = right;
-        right = left ^ feistel(right, subkeys[round]);
-        left = temp;
-    }
-
-    const combined: u64 = (@as(u64, right) << 32) | @as(u64, left);
-    return permute(combined, &FP, 64);
-}
-
-fn keyToU64(key: []const u8) !u64 {
-    if (key.len != 8) return error.InvalidKeyLength;
-    var result: u64 = 0;
-    for (key, 0..) |byte, i| {
-        result |= @as(u64, byte) << @intCast(56 - i * 8);
-    }
-    return result;
-}
-
-pub fn encrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    _ = self;
-    const key64 = try keyToU64(key);
-    const subkeys = generateSubkeys(key64);
+pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+    const key64 = try common.keyToU64(key);
+    const subkeys = common.generateSubkeys(key64);
 
     var buffer: [8]u8 = undefined;
 
@@ -208,7 +20,7 @@ pub fn encrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: 
             var block: u64 = 0;
             for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
 
-            const encrypted = processBlock(block, subkeys, false);
+            const encrypted = common.processBlock(block, subkeys, false);
             for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
 
             break;
@@ -226,7 +38,7 @@ pub fn encrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: 
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        const encrypted = processBlock(block, subkeys, false);
+        const encrypted = common.processBlock(block, subkeys, false);
 
         for (0..8) |i| {
             const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
@@ -237,10 +49,9 @@ pub fn encrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: 
     }
 }
 
-pub fn decrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    _ = self;
-    const key64 = try keyToU64(key);
-    const subkeys = generateSubkeys(key64);
+pub fn decrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+    const key64 = try common.keyToU64(key);
+    const subkeys = common.generateSubkeys(key64);
 
     var prev_block: ?[8]u8 = null;
     var buffer: [8]u8 = undefined;
@@ -258,7 +69,7 @@ pub fn decrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: 
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        const decrypted = processBlock(block, subkeys, true);
+        const decrypted = common.processBlock(block, subkeys, true);
 
         var current_decrypted: [8]u8 = undefined;
         for (0..8) |i| {
