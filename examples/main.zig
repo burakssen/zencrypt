@@ -4,7 +4,7 @@ const ze = @import("zencrypt");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .Idea);
+    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .Aes128);
 
     const data = "Hello, Zig!";
 

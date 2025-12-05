@@ -7,8 +7,10 @@ pub const CryptorType = enum {
     Des,
     TripleDes,
     Idea,
-    Aes,
-    AesGcm,
+    Aes128,
+    Aes256,
+    AesGcm128,
+    AesGcm256,
     Xtea,
     Blowfish,
     Rsa,
@@ -39,8 +41,10 @@ pub const Impl = union(CryptorType) {
     Des: algorithms.Des,
     TripleDes: algorithms.TripleDes,
     Idea: algorithms.Idea,
-    Aes: void,
-    AesGcm: void,
+    Aes128: algorithms.Aes,
+    Aes256: algorithms.Aes,
+    AesGcm128: void,
+    AesGcm256: void,
     Xtea: void,
     Blowfish: void,
     Rsa: void,
@@ -63,8 +67,10 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .Des => Cryptor.Impl{ .Des = algorithms.Des{} },
         .TripleDes => Cryptor.Impl{ .TripleDes = algorithms.TripleDes{} },
         .Idea => Cryptor.Impl{ .Idea = algorithms.Idea{} },
-        .Aes => .Aes,
-        .AesGcm => .AesGcm,
+        .Aes128 => Cryptor.Impl{ .Aes128 = algorithms.Aes.init(allocator, .Aes128) },
+        .Aes256 => Cryptor.Impl{ .Aes256 = algorithms.Aes.init(allocator, .Aes256) },
+        .AesGcm128 => .AesGcm128,
+        .AesGcm256 => .AesGcm256,
         .Xtea => .Xtea,
         .Blowfish => .Blowfish,
         .Rsa => .Rsa,
@@ -105,11 +111,13 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Des => |*des| return des.encrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.encrypt(reader, writer, derived_key.key),
         .Idea => |*idea| return idea.encrypt(reader, writer, derived_key.key),
-        .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Aes128 => |*aes128| return aes128.encrypt(reader, writer, derived_key.key),
+        .Aes256 => |*aes256| return aes256.encrypt(reader, writer, derived_key.key),
+        .AesGcm128, .AesGcm256, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
-pub fn decrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, password: []const u8) !void {
+pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []const u8) !void {
     // 1. Handle .None immediately (No salt read, no key derivation)
     if (self.impl == .None) {
         _ = try reader.stream(writer, .unlimited);
@@ -141,7 +149,9 @@ pub fn decrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Des => |*des| return des.decrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.decrypt(reader, writer, derived_key.key),
         .Idea => |*idea| return idea.decrypt(reader, writer, derived_key.key),
-        .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Aes128 => |*aes128| return aes128.decrypt(reader, writer, derived_key.key),
+        .Aes256 => |*aes256| return aes256.decrypt(reader, writer, derived_key.key),
+        .AesGcm128, .AesGcm256, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -152,8 +162,10 @@ fn getKeyLength(self: Cryptor) usize {
         .Des => 8,
         .TripleDes => 24,
         .Idea => 16,
-        .Aes => 32,
-        .AesGcm => 32,
+        .Aes128 => 16,
+        .Aes256 => 32,
+        .AesGcm128 => 16,
+        .AesGcm256 => 32,
         .Xtea => 16,
         .Blowfish => 32,
         .Rsa => 256,
