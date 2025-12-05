@@ -1,20 +1,12 @@
 const std = @import("std");
 
-const utils = @import("utils/triple_des.zig");
+const utils = @import("utils/idea.zig");
 
-const TripleDes = @This();
+const Idea = @This();
 
-pub fn encrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8) !void {
-    if (key.len != 24) return error.InvalidKeyLength; // 3DES requires 24 bytes (192 bits)
-
-    // Generate subkeys for all 3 keys
-    const k1 = try utils.des.keyToU64(key[0..8]);
-    const k2 = try utils.des.keyToU64(key[8..16]);
-    const k3 = try utils.des.keyToU64(key[16..24]);
-
-    const sk1 = utils.des.generateSubkeys(k1);
-    const sk2 = utils.des.generateSubkeys(k2);
-    const sk3 = utils.des.generateSubkeys(k3);
+pub fn encrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
+    const key128 = try utils.keyToU128(key);
+    const subkeys = utils.generateSubkeys(key128);
 
     var buffer: [8]u8 = undefined;
 
@@ -24,19 +16,18 @@ pub fn encrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
             if (err == error.EndOfStream) 0 else return err;
 
         if (bytes_read == 0) {
-            // Apply Padding (PKCS#7) for empty last block
+            // Apply Padding (PKCS#7)
             @memset(&buffer, 8);
             var block: u64 = 0;
             for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
 
-            const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
+            const encrypted = utils.processBlock(block, subkeys);
             for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
 
             break;
         }
 
         if (bytes_read < 8) {
-            // Apply Padding (PKCS#7)
             const pad_val: u8 = @intCast(8 - bytes_read);
             for (bytes_read..8) |i| {
                 buffer[i] = pad_val;
@@ -48,8 +39,7 @@ pub fn encrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        // 3DES Encrypt
-        const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
+        const encrypted = utils.processBlock(block, subkeys);
 
         for (0..8) |i| {
             const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
@@ -60,16 +50,10 @@ pub fn encrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
     }
 }
 
-pub fn decrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8) !void {
-    if (key.len != 24) return error.InvalidKeyLength;
-
-    const k1 = try utils.des.keyToU64(key[0..8]);
-    const k2 = try utils.des.keyToU64(key[8..16]);
-    const k3 = try utils.des.keyToU64(key[16..24]);
-
-    const sk1 = utils.des.generateSubkeys(k1);
-    const sk2 = utils.des.generateSubkeys(k2);
-    const sk3 = utils.des.generateSubkeys(k3);
+pub fn decrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
+    const key128 = try utils.keyToU128(key);
+    const enc_subkeys = utils.generateSubkeys(key128);
+    const dec_subkeys = utils.invertSubkeys(enc_subkeys);
 
     var prev_block: ?[8]u8 = null;
     var buffer: [8]u8 = undefined;
@@ -87,8 +71,7 @@ pub fn decrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        // 3DES Decrypt
-        const decrypted = utils.processBlock3DES(block, sk1, sk2, sk3, true);
+        const decrypted = utils.processBlock(block, dec_subkeys);
 
         var current_decrypted: [8]u8 = undefined;
         for (0..8) |i| {
@@ -103,7 +86,6 @@ pub fn decrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
     }
 
     if (prev_block) |last| {
-        // Validate and Remove Padding (PKCS#7)
         const pad_val = last[7];
         if (pad_val == 0 or pad_val > 8) return error.InvalidPadding;
 
@@ -115,30 +97,25 @@ pub fn decrypt(_: *TripleDes, reader: anytype, writer: anytype, key: []const u8)
     }
 }
 
-test "TripleDES encryption/decryption" {
+test "IDEA encryption/decryption" {
     const allocator = std.testing.allocator;
 
-    var tdes = TripleDes{};
+    var idea = Idea{};
 
-    // 24-byte key (192 bits)
-    const key = "12345678" ++ "87654321" ++ "12341234";
-    const plaintext = "Hello Triple DES world!!";
+    const key = "0123456789ABCDEF"; // 16 bytes
+    const plaintext = "This is a secret message used to test IDEA algorithm.";
 
-    // Setup streams
     var input_stream: std.Io.Reader = .fixed(plaintext);
-    var encrypted_list: std.Io.Writer.Allocating = .init(allocator);
-    defer encrypted_list.deinit();
+    var encrypted_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer encrypted_buffer.deinit();
 
-    // Encrypt
-    try tdes.encrypt(&input_stream, &encrypted_list.writer, key);
+    try idea.encrypt(&input_stream, &encrypted_buffer.writer, key);
 
-    // Setup decryption streams
-    var encrypted_stream: std.Io.Reader = .fixed(encrypted_list.written());
-    var decrypted_list: std.Io.Writer.Allocating = .init(allocator);
-    defer decrypted_list.deinit();
+    var encrypted_stream: std.Io.Reader = .fixed(encrypted_buffer.written());
+    var decrypted_buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer decrypted_buffer.deinit();
 
-    // Decrypt
-    try tdes.decrypt(&encrypted_stream, &decrypted_list.writer, key);
+    try idea.decrypt(&encrypted_stream, &decrypted_buffer.writer, key);
 
-    try std.testing.expectEqualStrings(plaintext, decrypted_list.written());
+    try std.testing.expectEqualStrings(plaintext, decrypted_buffer.written());
 }

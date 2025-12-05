@@ -38,7 +38,7 @@ pub const Impl = union(CryptorType) {
     Xor: algorithms.Xor,
     Des: algorithms.Des,
     TripleDes: algorithms.TripleDes,
-    Idea: void,
+    Idea: algorithms.Idea,
     Aes: void,
     AesGcm: void,
     Xtea: void,
@@ -62,7 +62,7 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .Xor => Cryptor.Impl{ .Xor = algorithms.Xor.init(allocator) },
         .Des => Cryptor.Impl{ .Des = algorithms.Des{} },
         .TripleDes => Cryptor.Impl{ .TripleDes = algorithms.TripleDes{} },
-        .Idea => .Idea,
+        .Idea => Cryptor.Impl{ .Idea = algorithms.Idea{} },
         .Aes => .Aes,
         .AesGcm => .AesGcm,
         .Xtea => .Xtea,
@@ -104,7 +104,8 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Xor => |*xor| return xor.encrypt(reader, writer, derived_key.key),
         .Des => |*des| return des.encrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.encrypt(reader, writer, derived_key.key),
-        .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Idea => |*idea| return idea.encrypt(reader, writer, derived_key.key),
+        .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -139,7 +140,8 @@ pub fn decrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Xor => |*xor| return xor.decrypt(reader, writer, derived_key.key),
         .Des => |*des| return des.decrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.decrypt(reader, writer, derived_key.key),
-        .Idea, .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Idea => |*idea| return idea.decrypt(reader, writer, derived_key.key),
+        .Aes, .AesGcm, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 

@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const common = @import("common/des.zig");
+const utils = @import("utils/des.zig");
 
 const Des = @This();
 
 pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    const key64 = try common.keyToU64(key);
-    const subkeys = common.generateSubkeys(key64);
+    const key64 = try utils.keyToU64(key);
+    const subkeys = utils.generateSubkeys(key64);
 
     var buffer: [8]u8 = undefined;
 
@@ -20,7 +20,7 @@ pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []c
             var block: u64 = 0;
             for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
 
-            const encrypted = common.processBlock(block, subkeys, false);
+            const encrypted = utils.processBlock(block, subkeys, false);
             for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
 
             break;
@@ -38,7 +38,7 @@ pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []c
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        const encrypted = common.processBlock(block, subkeys, false);
+        const encrypted = utils.processBlock(block, subkeys, false);
 
         for (0..8) |i| {
             const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
@@ -50,8 +50,8 @@ pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []c
 }
 
 pub fn decrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    const key64 = try common.keyToU64(key);
-    const subkeys = common.generateSubkeys(key64);
+    const key64 = try utils.keyToU64(key);
+    const subkeys = utils.generateSubkeys(key64);
 
     var prev_block: ?[8]u8 = null;
     var buffer: [8]u8 = undefined;
@@ -69,7 +69,7 @@ pub fn decrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []c
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        const decrypted = common.processBlock(block, subkeys, true);
+        const decrypted = utils.processBlock(block, subkeys, true);
 
         var current_decrypted: [8]u8 = undefined;
         for (0..8) |i| {
