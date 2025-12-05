@@ -4,9 +4,11 @@ const ze = @import("zencrypt");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .Aes128);
+    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .AesGcm256);
 
     const data = "Hello, Zig!";
+
+    std.debug.print("Original Data: {s}\n", .{data});
 
     var reader: std.Io.Reader = .fixed(data);
     var writer: std.Io.Writer.Allocating = .init(allocator);

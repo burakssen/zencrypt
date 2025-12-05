@@ -43,8 +43,8 @@ pub const Impl = union(CryptorType) {
     Idea: algorithms.Idea,
     Aes128: algorithms.Aes,
     Aes256: algorithms.Aes,
-    AesGcm128: void,
-    AesGcm256: void,
+    AesGcm128: algorithms.AesGcm,
+    AesGcm256: algorithms.AesGcm,
     Xtea: void,
     Blowfish: void,
     Rsa: void,
@@ -69,8 +69,8 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .Idea => Cryptor.Impl{ .Idea = algorithms.Idea{} },
         .Aes128 => Cryptor.Impl{ .Aes128 = algorithms.Aes.init(allocator, .Aes128) },
         .Aes256 => Cryptor.Impl{ .Aes256 = algorithms.Aes.init(allocator, .Aes256) },
-        .AesGcm128 => .AesGcm128,
-        .AesGcm256 => .AesGcm256,
+        .AesGcm128 => Cryptor.Impl{ .AesGcm128 = algorithms.AesGcm.init(allocator, .AesGcm128) },
+        .AesGcm256 => Cryptor.Impl{ .AesGcm256 = algorithms.AesGcm.init(allocator, .AesGcm256) },
         .Xtea => .Xtea,
         .Blowfish => .Blowfish,
         .Rsa => .Rsa,
@@ -111,9 +111,9 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Des => |*des| return des.encrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.encrypt(reader, writer, derived_key.key),
         .Idea => |*idea| return idea.encrypt(reader, writer, derived_key.key),
-        .Aes128 => |*aes128| return aes128.encrypt(reader, writer, derived_key.key),
-        .Aes256 => |*aes256| return aes256.encrypt(reader, writer, derived_key.key),
-        .AesGcm128, .AesGcm256, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Aes128, .Aes256 => |*aes| return aes.encrypt(reader, writer, derived_key.key),
+        .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.encrypt(reader, writer, derived_key.key),
+        .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -149,9 +149,9 @@ pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []con
         .Des => |*des| return des.decrypt(reader, writer, derived_key.key),
         .TripleDes => |*tdes| return tdes.decrypt(reader, writer, derived_key.key),
         .Idea => |*idea| return idea.decrypt(reader, writer, derived_key.key),
-        .Aes128 => |*aes128| return aes128.decrypt(reader, writer, derived_key.key),
-        .Aes256 => |*aes256| return aes256.decrypt(reader, writer, derived_key.key),
-        .AesGcm128, .AesGcm256, .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Aes128, .Aes256 => |*aes| return aes.decrypt(reader, writer, derived_key.key),
+        .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.decrypt(reader, writer, derived_key.key),
+        .Xtea, .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
