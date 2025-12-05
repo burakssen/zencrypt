@@ -46,7 +46,7 @@ pub const Impl = union(CryptorType) {
     AesGcm128: algorithms.AesGcm,
     AesGcm256: algorithms.AesGcm,
     Xtea: algorithms.Xtea,
-    Blowfish: void,
+    Blowfish: algorithms.Blowfish,
     Rsa: void,
     Salsa20: void,
     ChaCha20: void,
@@ -72,7 +72,7 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .AesGcm128 => Cryptor.Impl{ .AesGcm128 = algorithms.AesGcm.init(allocator, .AesGcm128) },
         .AesGcm256 => Cryptor.Impl{ .AesGcm256 = algorithms.AesGcm.init(allocator, .AesGcm256) },
         .Xtea => Cryptor.Impl{ .Xtea = algorithms.Xtea.init(allocator) },
-        .Blowfish => .Blowfish,
+        .Blowfish => Cryptor.Impl{ .Blowfish = algorithms.Blowfish.init(allocator) },
         .Rsa => .Rsa,
         .Salsa20 => .Salsa20,
         .ChaCha20 => .ChaCha20,
@@ -114,7 +114,8 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Aes128, .Aes256 => |*aes| return aes.encrypt(reader, writer, derived_key.key),
         .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.encrypt(reader, writer, derived_key.key),
         .Xtea => |*xtea| return xtea.encrypt(reader, writer, derived_key.key),
-        .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Blowfish => |*blowfish| return blowfish.encrypt(reader, writer, derived_key.key),
+        .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -153,7 +154,8 @@ pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []con
         .Aes128, .Aes256 => |*aes| return aes.decrypt(reader, writer, derived_key.key),
         .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.decrypt(reader, writer, derived_key.key),
         .Xtea => |*xtea| return xtea.decrypt(reader, writer, derived_key.key),
-        .Blowfish, .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Blowfish => |*blowfish| return blowfish.decrypt(reader, writer, derived_key.key),
+        .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 

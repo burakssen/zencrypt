@@ -5,3 +5,4 @@ pub const Idea = @import("idea.zig");
 pub const Aes = @import("aes.zig");
 pub const AesGcm = @import("aes_gcm.zig");
 pub const Xtea = @import("xtea.zig");
+pub const Blowfish = @import("blowfish.zig");
