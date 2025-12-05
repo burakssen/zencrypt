@@ -26,7 +26,7 @@ pub fn encrypt(_: *Xor, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []c
     }
 }
 
-pub fn decrypt(self: *Xor, reader: anytype, writer: anytype, key: []const u8) !void {
+pub fn decrypt(self: *Xor, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     // XOR decryption is identical to encryption
     return self.encrypt(reader, writer, key);
 }

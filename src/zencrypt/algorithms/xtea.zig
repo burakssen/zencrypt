@@ -1,56 +1,56 @@
 const std = @import("std");
+const utils = @import("utils/xtea.zig");
 
-const utils = @import("utils/triple_des.zig");
+const Xtea = @This();
 
-const TripleDes = @This();
+allocator: std.mem.Allocator,
 
-pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    if (key.len != 24) return error.InvalidKeyLength; // 3DES requires 24 bytes (192 bits)
+pub fn init(allocator: std.mem.Allocator) Xtea {
+    return Xtea{
+        .allocator = allocator,
+    };
+}
 
-    // Generate subkeys for all 3 keys
-    const k1 = try utils.des.keyToU64(key[0..8]);
-    const k2 = try utils.des.keyToU64(key[8..16]);
-    const k3 = try utils.des.keyToU64(key[16..24]);
-
-    const sk1 = utils.des.generateSubkeys(k1);
-    const sk2 = utils.des.generateSubkeys(k2);
-    const sk3 = utils.des.generateSubkeys(k3);
+pub fn encrypt(_: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+    // XTEA requires a 128-bit key (16 bytes)
+    const key_words = try utils.keyToWords(key);
 
     var buffer: [8]u8 = undefined;
 
     while (true) {
+        // Read up to 8 bytes
         var buffer_writer: std.Io.Writer = .fixed(&buffer);
         const bytes_read = reader.stream(&buffer_writer, .limited(8)) catch |err|
             if (err == error.EndOfStream) 0 else return err;
 
         if (bytes_read == 0) {
-            // Apply Padding (PKCS#7) for empty last block
+            // End of stream, add full padding block (PKCS#7)
             @memset(&buffer, 8);
             var block: u64 = 0;
             for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
 
-            const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
+            const encrypted = utils.encipher(block, key_words);
             for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
-
             break;
         }
 
         if (bytes_read < 8) {
-            // Apply Padding (PKCS#7)
+            // Partial block, pad with (8 - bytes_read)
             const pad_val: u8 = @intCast(8 - bytes_read);
             for (bytes_read..8) |i| {
                 buffer[i] = pad_val;
             }
         }
 
+        // Pack bytes into u64 Big Endian
         var block: u64 = 0;
         for (buffer, 0..) |byte, i| {
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        // 3DES Encrypt
-        const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
+        const encrypted = utils.encipher(block, key_words);
 
+        // Write resulting 8 bytes
         for (0..8) |i| {
             const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
             try writer.writeByte(byte);
@@ -60,16 +60,8 @@ pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     }
 }
 
-pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    if (key.len != 24) return error.InvalidKeyLength;
-
-    const k1 = try utils.des.keyToU64(key[0..8]);
-    const k2 = try utils.des.keyToU64(key[8..16]);
-    const k3 = try utils.des.keyToU64(key[16..24]);
-
-    const sk1 = utils.des.generateSubkeys(k1);
-    const sk2 = utils.des.generateSubkeys(k2);
-    const sk3 = utils.des.generateSubkeys(k3);
+pub fn decrypt(_: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+    const key_words = try utils.keyToWords(key);
 
     var prev_block: ?[8]u8 = null;
     var buffer: [8]u8 = undefined;
@@ -82,19 +74,21 @@ pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
         if (amt == 0) break;
         if (amt != 8) return error.InvalidCiphertextLength;
 
+        // Pack
         var block: u64 = 0;
         for (buffer, 0..) |byte, i| {
             block |= @as(u64, byte) << @intCast(56 - i * 8);
         }
 
-        // 3DES Decrypt
-        const decrypted = utils.processBlock3DES(block, sk1, sk2, sk3, true);
+        const decrypted = utils.decipher(block, key_words);
 
+        // Unpack
         var current_decrypted: [8]u8 = undefined;
         for (0..8) |i| {
             current_decrypted[i] = @intCast((decrypted >> @intCast(56 - i * 8)) & 0xFF);
         }
 
+        // Write previous block if it exists (buffering to handle padding removal at the end)
         if (prev_block) |prev| {
             try writer.writeAll(&prev);
         }
@@ -102,11 +96,12 @@ pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
         prev_block = current_decrypted;
     }
 
+    // Handle PKCS#7 padding removal on the last block
     if (prev_block) |last| {
-        // Validate and Remove Padding (PKCS#7)
         const pad_val = last[7];
         if (pad_val == 0 or pad_val > 8) return error.InvalidPadding;
 
+        // Verify padding integrity
         for (8 - pad_val..8) |i| {
             if (last[i] != pad_val) return error.InvalidPadding;
         }
@@ -115,30 +110,25 @@ pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     }
 }
 
-test "TripleDES encryption/decryption" {
+test "XTEA encryption/decryption" {
     const allocator = std.testing.allocator;
+    var xtea = Xtea.init(allocator);
 
-    var tdes = TripleDes{};
+    // XTEA Key must be 16 bytes
+    const key = "1234567890123456";
+    const plaintext = "Hello XTEA World!!!";
 
-    // 24-byte key (192 bits)
-    const key = "12345678" ++ "87654321" ++ "12341234";
-    const plaintext = "Hello Triple DES world!!";
-
-    // Setup streams
-    var input_stream: std.Io.Reader = .fixed(plaintext);
-    var encrypted_list: std.Io.Writer.Allocating = .init(allocator);
+    var input_stream = std.io.fixedBufferStream(plaintext);
+    var encrypted_list = std.ArrayList(u8).init(allocator);
     defer encrypted_list.deinit();
 
-    // Encrypt
-    try tdes.encrypt(&input_stream, &encrypted_list.writer, key);
+    try xtea.encrypt(input_stream.reader(), encrypted_list.writer(), key);
 
-    // Setup decryption streams
-    var encrypted_stream: std.Io.Reader = .fixed(encrypted_list.written());
-    var decrypted_list: std.Io.Writer.Allocating = .init(allocator);
+    var encrypted_stream = std.io.fixedBufferStream(encrypted_list.items);
+    var decrypted_list = std.ArrayList(u8).init(allocator);
     defer decrypted_list.deinit();
 
-    // Decrypt
-    try tdes.decrypt(&encrypted_stream, &decrypted_list.writer, key);
+    try xtea.decrypt(encrypted_stream.reader(), decrypted_list.writer(), key);
 
-    try std.testing.expectEqualStrings(plaintext, decrypted_list.written());
+    try std.testing.expectEqualStrings(plaintext, decrypted_list.items);
 }
