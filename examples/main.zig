@@ -6,7 +6,7 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
     var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .Blowfish);
 
-    const data = "Hello, Zig!";
+    const data = "Hello, Zig!" ** 10;
 
     std.debug.print("Original Data: {s}\n", .{data});
 
