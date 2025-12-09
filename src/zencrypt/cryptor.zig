@@ -13,7 +13,6 @@ pub const CryptorType = enum {
     AesGcm256,
     Xtea,
     Blowfish,
-    Rsa,
     Salsa20,
     ChaCha20,
     XChaCha20,
@@ -47,9 +46,8 @@ pub const Impl = union(CryptorType) {
     AesGcm256: algorithms.AesGcm,
     Xtea: algorithms.Xtea,
     Blowfish: algorithms.Blowfish,
-    Rsa: void,
-    Salsa20: void,
-    ChaCha20: void,
+    Salsa20: algorithms.Salsa20,
+    ChaCha20: algorithms.ChaCha20,
     XChaCha20: void,
     XChaCha20Poly1305: void,
 };
@@ -73,9 +71,8 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .AesGcm256 => Cryptor.Impl{ .AesGcm256 = algorithms.AesGcm.init(allocator, .AesGcm256) },
         .Xtea => Cryptor.Impl{ .Xtea = algorithms.Xtea.init(allocator) },
         .Blowfish => Cryptor.Impl{ .Blowfish = algorithms.Blowfish.init(allocator) },
-        .Rsa => .Rsa,
-        .Salsa20 => .Salsa20,
-        .ChaCha20 => .ChaCha20,
+        .Salsa20 => Cryptor.Impl{ .Salsa20 = algorithms.Salsa20.init(allocator) },
+        .ChaCha20 => Cryptor.Impl{ .ChaCha20 = algorithms.ChaCha20.init(allocator) },
         .XChaCha20 => .XChaCha20,
         .XChaCha20Poly1305 => .XChaCha20Poly1305,
     };
@@ -115,7 +112,9 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.encrypt(reader, writer, derived_key.key),
         .Xtea => |*xtea| return xtea.encrypt(reader, writer, derived_key.key),
         .Blowfish => |*blowfish| return blowfish.encrypt(reader, writer, derived_key.key),
-        .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Salsa20 => |*salsa20| return salsa20.encrypt(reader, writer, derived_key.key),
+        .ChaCha20 => |*chacha20| return chacha20.encrypt(reader, writer, derived_key.key),
+        .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -155,7 +154,9 @@ pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []con
         .AesGcm128, .AesGcm256 => |*aes_gcm| return aes_gcm.decrypt(reader, writer, derived_key.key),
         .Xtea => |*xtea| return xtea.decrypt(reader, writer, derived_key.key),
         .Blowfish => |*blowfish| return blowfish.decrypt(reader, writer, derived_key.key),
-        .Rsa, .Salsa20, .ChaCha20, .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .Salsa20 => |*salsa20| return salsa20.decrypt(reader, writer, derived_key.key),
+        .ChaCha20 => |*chacha20| return chacha20.decrypt(reader, writer, derived_key.key),
+        .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
     }
 }
 
@@ -172,7 +173,6 @@ fn getKeyLength(self: Cryptor) usize {
         .AesGcm256 => 32,
         .Xtea => 16,
         .Blowfish => 32,
-        .Rsa => 256,
         .Salsa20 => 32,
         .ChaCha20 => 32,
         .XChaCha20 => 32,

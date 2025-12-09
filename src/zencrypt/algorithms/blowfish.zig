@@ -91,17 +91,16 @@ test "Blowfish encryption/decryption" {
     const key = "SecretKey123";
     const plaintext = "Hello Blowfish World!!!";
 
-    var input_stream = std.io.fixedBufferStream(plaintext);
-    var encrypted_list = std.ArrayList(u8).init(allocator);
+    var input_stream: std.Io.Reader = .fixed(plaintext);
+    var encrypted_list: std.Io.Writer.Allocating = .init(allocator);
     defer encrypted_list.deinit();
 
-    try bf.encrypt(input_stream.reader(), encrypted_list.writer(), key);
-
-    var encrypted_stream = std.io.fixedBufferStream(encrypted_list.items);
-    var decrypted_list = std.ArrayList(u8).init(allocator);
+    try bf.encrypt(&input_stream, &encrypted_list.writer, key);
+    var encrypted_stream: std.Io.Reader = .fixed(encrypted_list.written());
+    var decrypted_list: std.Io.Writer.Allocating = .init(allocator);
     defer decrypted_list.deinit();
 
-    try bf.decrypt(encrypted_stream.reader(), decrypted_list.writer(), key);
+    try bf.decrypt(&encrypted_stream, &decrypted_list.writer, key);
 
-    try std.testing.expectEqualStrings(plaintext, decrypted_list.items);
+    try std.testing.expectEqualStrings(plaintext, decrypted_list.written());
 }

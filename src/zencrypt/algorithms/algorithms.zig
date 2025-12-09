@@ -6,3 +6,5 @@ pub const Aes = @import("aes.zig");
 pub const AesGcm = @import("aes_gcm.zig");
 pub const Xtea = @import("xtea.zig");
 pub const Blowfish = @import("blowfish.zig");
+pub const Salsa20 = @import("salsa20.zig");
+pub const ChaCha20 = @import("chacha20.zig");

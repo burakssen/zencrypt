@@ -113,6 +113,7 @@ pub fn decrypt(self: *AesGcm, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
         try writer.writeAll(plaintext_slice);
     }
 }
+
 fn computeNonce(base_nonce: [NONCE_SIZE]u8, counter: u32) [NONCE_SIZE]u8 {
     var new_nonce = base_nonce;
     const last_part = std.mem.readInt(u32, base_nonce[8..12], .big);
@@ -121,6 +122,7 @@ fn computeNonce(base_nonce: [NONCE_SIZE]u8, counter: u32) [NONCE_SIZE]u8 {
     std.mem.writeInt(u32, new_nonce[8..12], updated, .big);
     return new_nonce;
 }
+
 test "Streaming Chunked GCM" {
     const allocator = std.testing.allocator;
     var gcm = AesGcm.init(allocator, .AesGcm256);
@@ -130,18 +132,17 @@ test "Streaming Chunked GCM" {
     const input_data = "A" ** 5000;
 
     // Encrypt
-    var in_stream = std.io.fixedBufferStream(input_data);
-    var out_list = std.ArrayList(u8).init(allocator);
+    var in_stream: std.Io.Reader = .fixed(input_data);
+    var out_list: std.Io.Writer.Allocating = .init(allocator);
     defer out_list.deinit();
 
-    try gcm.encrypt(in_stream.reader(), out_list.writer(), key);
+    try gcm.encrypt(&in_stream, &out_list.writer, key);
 
     // Decrypt
-    var dec_in_stream = std.io.fixedBufferStream(out_list.items);
-    var dec_out_list = std.ArrayList(u8).init(allocator);
+    var dec_in_stream: std.Io.Reader = .fixed(out_list.written());
+    var dec_out_list: std.Io.Writer.Allocating = .init(allocator);
     defer dec_out_list.deinit();
 
-    try gcm.decrypt(dec_in_stream.reader(), dec_out_list.writer(), key);
-
-    try std.testing.expectEqualStrings(input_data, dec_out_list.items);
+    try gcm.decrypt(&dec_in_stream, &dec_out_list.writer, key);
+    try std.testing.expectEqualStrings(input_data, dec_out_list.written());
 }
