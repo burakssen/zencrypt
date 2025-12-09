@@ -6,7 +6,15 @@ const TripleDes = @This();
 
 const Core = common.BlockCipher(8);
 
-pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+allocator: std.mem.Allocator,
+
+pub fn init(allocator: std.mem.Allocator) TripleDes {
+    return TripleDes{
+        .allocator = allocator,
+    };
+}
+
+pub fn encrypt(self: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len != 24) return error.InvalidKeyLength; // 3DES requires 24 bytes (192 bits)
 
     // Generate subkeys for all 3 keys
@@ -19,10 +27,11 @@ pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     const sk3 = utils.des.generateSubkeys(k3);
 
     const ctx = TripleDesContext{ .sk1 = sk1, .sk2 = sk2, .sk3 = sk3 };
-    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
-pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn decrypt(self: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len != 24) return error.InvalidKeyLength;
 
     const k1 = try utils.des.keyToU64(key[0..8]);
@@ -34,7 +43,8 @@ pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     const sk3 = utils.des.generateSubkeys(k3);
 
     const ctx = TripleDesContext{ .sk1 = sk1, .sk2 = sk2, .sk3 = sk3 };
-    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, decryptBlockFn);
 }
 
 const TripleDesContext = struct {

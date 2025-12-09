@@ -62,9 +62,9 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
     const impl = switch (cryptor_type) {
         .None => .None,
         .Xor => Cryptor.Impl{ .Xor = algorithms.Xor.init(allocator) },
-        .Des => Cryptor.Impl{ .Des = algorithms.Des{} },
-        .TripleDes => Cryptor.Impl{ .TripleDes = algorithms.TripleDes{} },
-        .Idea => Cryptor.Impl{ .Idea = algorithms.Idea{} },
+        .Des => Cryptor.Impl{ .Des = algorithms.Des.init(allocator) },
+        .TripleDes => Cryptor.Impl{ .TripleDes = algorithms.TripleDes.init(allocator) },
+        .Idea => Cryptor.Impl{ .Idea = algorithms.Idea.init(allocator) },
         .Aes128 => Cryptor.Impl{ .Aes128 = algorithms.Aes.init(allocator, .Aes128) },
         .Aes256 => Cryptor.Impl{ .Aes256 = algorithms.Aes.init(allocator, .Aes256) },
         .AesGcm128 => Cryptor.Impl{ .AesGcm128 = algorithms.AesGcm.init(allocator, .AesGcm128) },

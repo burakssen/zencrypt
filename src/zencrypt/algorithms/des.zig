@@ -2,22 +2,31 @@ const std = @import("std");
 const utils = @import("utils/des.zig");
 const common = @import("common.zig");
 
+allocator: std.mem.Allocator,
 const Des = @This();
 
 const Core = common.BlockCipher(8);
 
-pub fn encrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-    const key64 = try utils.keyToU64(key);
-    const subkeys = utils.generateSubkeys(key64);
-    const ctx = DesContext{ .subkeys = subkeys };
-    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
+pub fn init(allocator: std.mem.Allocator) Des {
+    return Des{
+        .allocator = allocator,
+    };
 }
 
-pub fn decrypt(_: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn encrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     const key64 = try utils.keyToU64(key);
     const subkeys = utils.generateSubkeys(key64);
     const ctx = DesContext{ .subkeys = subkeys };
-    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, encryptBlockFn);
+}
+
+pub fn decrypt(self: *Des, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+    const key64 = try utils.keyToU64(key);
+    const subkeys = utils.generateSubkeys(key64);
+    const ctx = DesContext{ .subkeys = subkeys };
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, decryptBlockFn);
 }
 
 const DesContext = struct {

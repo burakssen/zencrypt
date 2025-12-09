@@ -16,14 +16,16 @@ pub fn init(allocator: std.mem.Allocator) Salsa20 {
 
 const Core = common.AeadStreamCipher(NONCE_SIZE, TAG_SIZE, CHUNK_SIZE);
 
-pub fn encrypt(_: *Salsa20, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn encrypt(self: *Salsa20, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     const ctx = Context{ .key = key };
-    try Core.encrypt(reader, writer, ctx, computeNonce, encryptChunk);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, computeNonce, encryptChunk);
 }
 
-pub fn decrypt(_: *Salsa20, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn decrypt(self: *Salsa20, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     const ctx = Context{ .key = key };
-    try Core.decrypt(reader, writer, ctx, computeNonce, decryptChunk);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, computeNonce, decryptChunk);
 }
 
 const Context = struct {

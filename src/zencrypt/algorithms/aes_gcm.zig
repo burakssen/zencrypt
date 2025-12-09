@@ -32,17 +32,19 @@ pub fn encrypt(self: *AesGcm, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     }
 
     const ctx = Context{ .key = key, .type = self.aes_gcm_type };
-    try Core.encrypt(reader, writer, ctx, computeNonce, encryptChunk);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, computeNonce, encryptChunk);
 }
 
 pub fn decrypt(self: *AesGcm, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
-     switch (self.aes_gcm_type) {
+    switch (self.aes_gcm_type) {
         .AesGcm128 => if (key.len != 16) return error.InvalidKeyLength,
         .AesGcm256 => if (key.len != 32) return error.InvalidKeyLength,
     }
 
     const ctx = Context{ .key = key, .type = self.aes_gcm_type };
-    try Core.decrypt(reader, writer, ctx, computeNonce, decryptChunk);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, computeNonce, decryptChunk);
 }
 
 const Context = struct {

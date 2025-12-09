@@ -14,18 +14,20 @@ pub fn init(allocator: std.mem.Allocator) Blowfish {
 
 const Core = common.BlockCipher(8);
 
-pub fn encrypt(_: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn encrypt(self: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len < 4 or key.len > 56) return error.InvalidKeyLength;
 
     const ctx = try utils.BlowfishContext.init(key);
-    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
-pub fn decrypt(_: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn decrypt(self: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len < 4 or key.len > 56) return error.InvalidKeyLength;
 
     const ctx = try utils.BlowfishContext.init(key);
-    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, decryptBlockFn);
 }
 
 fn encryptBlockFn(ctx: utils.BlowfishContext, block: *[8]u8) void {

@@ -5,20 +5,29 @@ const common = @import("common.zig");
 const Idea = @This();
 
 const Core = common.BlockCipher(8);
+allocator: std.mem.Allocator,
 
-pub fn encrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
+pub fn init(allocator: std.mem.Allocator) Idea {
+    return Idea{
+        .allocator = allocator,
+    };
+}
+
+pub fn encrypt(self: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
     const key128 = try utils.keyToU128(key);
     const subkeys = utils.generateSubkeys(key128);
     const ctx = IdeaContext{ .subkeys = subkeys };
-    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
-pub fn decrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
+pub fn decrypt(self: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
     const key128 = try utils.keyToU128(key);
     const enc_subkeys = utils.generateSubkeys(key128);
     const dec_subkeys = utils.invertSubkeys(enc_subkeys);
     const ctx = IdeaContext{ .subkeys = dec_subkeys };
-    try Core.decrypt(reader, writer, ctx, encryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, encryptBlockFn);
 }
 
 const IdeaContext = struct {

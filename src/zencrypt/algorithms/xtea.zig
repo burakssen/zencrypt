@@ -14,16 +14,18 @@ pub fn init(allocator: std.mem.Allocator) Xtea {
 
 const Core = common.BlockCipher(8);
 
-pub fn encrypt(_: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn encrypt(self: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     const key_words = try utils.keyToWords(key);
     const ctx = XteaContext{ .key_words = key_words };
-    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
-pub fn decrypt(_: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
+pub fn decrypt(self: *Xtea, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     const key_words = try utils.keyToWords(key);
     const ctx = XteaContext{ .key_words = key_words };
-    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+    var core = Core.init(self.allocator);
+    try core.decrypt(reader, writer, ctx, decryptBlockFn);
 }
 
 const XteaContext = struct {

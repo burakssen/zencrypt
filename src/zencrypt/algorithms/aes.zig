@@ -20,27 +20,29 @@ pub fn init(allocator: std.mem.Allocator, aes_type: AesType) Aes {
 const Core = common.BlockCipher(16);
 
 pub fn encrypt(self: *Aes, reader: anytype, writer: anytype, key: []const u8) !void {
+    var core = Core.init(self.allocator);
     switch (self.aes_type) {
         .Aes128 => {
             const Ctx = std.crypto.core.aes.AesEncryptCtx(std.crypto.core.aes.Aes128);
-            try Core.encrypt(reader, writer, Ctx.init(key[0..16].*), encryptBlock(Ctx));
+            try core.encrypt(reader, writer, Ctx.init(key[0..16].*), encryptBlock(Ctx));
         },
         .Aes256 => {
             const Ctx = std.crypto.core.aes.AesEncryptCtx(std.crypto.core.aes.Aes256);
-            try Core.encrypt(reader, writer, Ctx.init(key[0..32].*), encryptBlock(Ctx));
+            try core.encrypt(reader, writer, Ctx.init(key[0..32].*), encryptBlock(Ctx));
         },
     }
 }
 
 pub fn decrypt(self: *Aes, reader: anytype, writer: anytype, key: []const u8) !void {
+    var core = Core.init(self.allocator);
     switch (self.aes_type) {
         .Aes128 => {
             const Ctx = std.crypto.core.aes.AesDecryptCtx(std.crypto.core.aes.Aes128);
-            try Core.decrypt(reader, writer, Ctx.init(key[0..16].*), decryptBlock(Ctx));
+            try core.decrypt(reader, writer, Ctx.init(key[0..16].*), decryptBlock(Ctx));
         },
         .Aes256 => {
-             const Ctx = std.crypto.core.aes.AesDecryptCtx(std.crypto.core.aes.Aes256);
-            try Core.decrypt(reader, writer, Ctx.init(key[0..32].*), decryptBlock(Ctx));
+            const Ctx = std.crypto.core.aes.AesDecryptCtx(std.crypto.core.aes.Aes256);
+            try core.decrypt(reader, writer, Ctx.init(key[0..32].*), decryptBlock(Ctx));
         },
     }
 }
