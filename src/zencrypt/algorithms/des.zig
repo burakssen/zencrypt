@@ -50,7 +50,7 @@ fn decryptBlockFn(ctx: DesContext, block: *[8]u8) void {
 test "DES encryption/decryption" {
     const allocator = std.testing.allocator;
 
-    var des = Des{};
+    var des = Des.init(allocator);
 
     const key = "DESCRYPT".*;
     const plaintext = "Hello!!!";

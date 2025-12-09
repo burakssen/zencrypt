@@ -44,7 +44,7 @@ fn encryptBlockFn(ctx: IdeaContext, block: *[8]u8) void {
 test "IDEA encryption/decryption" {
     const allocator = std.testing.allocator;
 
-    var idea = Idea{};
+    var idea = Idea.init(allocator);
 
     const key = "0123456789ABCDEF"; // 16 bytes
     const plaintext = "This is a secret message used to test IDEA algorithm.";

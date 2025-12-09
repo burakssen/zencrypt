@@ -70,7 +70,7 @@ fn decryptBlockFn(ctx: TripleDesContext, block: *[8]u8) void {
 test "TripleDES encryption/decryption" {
     const allocator = std.testing.allocator;
 
-    var tdes = TripleDes{};
+    var tdes = TripleDes.init(allocator);
 
     // 24-byte key (192 bits)
     const key = "12345678" ++ "87654321" ++ "12341234";
