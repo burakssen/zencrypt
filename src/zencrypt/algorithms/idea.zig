@@ -1,100 +1,35 @@
 const std = @import("std");
-
 const utils = @import("utils/idea.zig");
+const common = @import("common.zig");
 
 const Idea = @This();
+
+const Core = common.BlockCipher(8);
 
 pub fn encrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
     const key128 = try utils.keyToU128(key);
     const subkeys = utils.generateSubkeys(key128);
-
-    var buffer: [8]u8 = undefined;
-
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const bytes_read = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
-
-        if (bytes_read == 0) {
-            // Apply Padding (PKCS#7)
-            @memset(&buffer, 8);
-            var block: u64 = 0;
-            for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
-
-            const encrypted = utils.processBlock(block, subkeys);
-            for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
-
-            break;
-        }
-
-        if (bytes_read < 8) {
-            const pad_val: u8 = @intCast(8 - bytes_read);
-            for (bytes_read..8) |i| {
-                buffer[i] = pad_val;
-            }
-        }
-
-        var block: u64 = 0;
-        for (buffer, 0..) |byte, i| {
-            block |= @as(u64, byte) << @intCast(56 - i * 8);
-        }
-
-        const encrypted = utils.processBlock(block, subkeys);
-
-        for (0..8) |i| {
-            const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
-            try writer.writeByte(byte);
-        }
-
-        if (bytes_read < 8) break;
-    }
+    const ctx = IdeaContext{ .subkeys = subkeys };
+    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
 pub fn decrypt(_: *Idea, reader: anytype, writer: anytype, key: []const u8) !void {
     const key128 = try utils.keyToU128(key);
     const enc_subkeys = utils.generateSubkeys(key128);
     const dec_subkeys = utils.invertSubkeys(enc_subkeys);
+    const ctx = IdeaContext{ .subkeys = dec_subkeys };
+    try Core.decrypt(reader, writer, ctx, encryptBlockFn);
+}
 
-    var prev_block: ?[8]u8 = null;
-    var buffer: [8]u8 = undefined;
+const IdeaContext = struct {
+    subkeys: [52]u16,
+};
 
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const amt = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
-
-        if (amt == 0) break;
-        if (amt != 8) return error.InvalidCiphertextLength;
-
-        var block: u64 = 0;
-        for (buffer, 0..) |byte, i| {
-            block |= @as(u64, byte) << @intCast(56 - i * 8);
-        }
-
-        const decrypted = utils.processBlock(block, dec_subkeys);
-
-        var current_decrypted: [8]u8 = undefined;
-        for (0..8) |i| {
-            current_decrypted[i] = @intCast((decrypted >> @intCast(56 - i * 8)) & 0xFF);
-        }
-
-        if (prev_block) |prev| {
-            try writer.writeAll(&prev);
-        }
-
-        prev_block = current_decrypted;
-    }
-
-    if (prev_block) |last| {
-        const pad_val = last[7];
-        if (pad_val == 0 or pad_val > 8) return error.InvalidPadding;
-
-        for (8 - pad_val..8) |i| {
-            if (last[i] != pad_val) return error.InvalidPadding;
-        }
-
-        try writer.writeAll(last[0 .. 8 - pad_val]);
-    }
+fn encryptBlockFn(ctx: IdeaContext, block: *[8]u8) void {
+    var b: u64 = 0;
+    for (block, 0..) |byte, i| b |= @as(u64, byte) << @intCast(56 - i * 8);
+    const enc = utils.processBlock(b, ctx.subkeys);
+    for (0..8) |i| block[i] = @intCast((enc >> @intCast(56 - i * 8)) & 0xFF);
 }
 
 test "IDEA encryption/decryption" {

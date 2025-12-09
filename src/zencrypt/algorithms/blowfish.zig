@@ -1,6 +1,7 @@
 // blowfish.zig - Main Blowfish cipher implementation
 const std = @import("std");
 const utils = @import("utils/blowfish.zig");
+const common = @import("common.zig");
 
 const Blowfish = @This();
 allocator: std.mem.Allocator,
@@ -11,77 +12,32 @@ pub fn init(allocator: std.mem.Allocator) Blowfish {
     };
 }
 
+const Core = common.BlockCipher(8);
+
 pub fn encrypt(_: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len < 4 or key.len > 56) return error.InvalidKeyLength;
 
-    var ctx = try utils.BlowfishContext.init(key);
-    var buffer: [8]u8 = undefined;
-
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const bytes_read = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
-        if (bytes_read == 0) {
-            // End of stream, add full padding block (PKCS#7)
-            @memset(&buffer, 8);
-            const block = utils.bytesToBlock(&buffer);
-            const encrypted = ctx.encryptBlock(block);
-            try utils.writeBlock(writer, encrypted);
-            break;
-        }
-
-        if (bytes_read < 8) {
-            // Partial block, pad with (8 - bytes_read)
-            const pad_val: u8 = @intCast(8 - bytes_read);
-            for (bytes_read..8) |i| {
-                buffer[i] = pad_val;
-            }
-        }
-
-        const block = utils.bytesToBlock(&buffer);
-        const encrypted = ctx.encryptBlock(block);
-        try utils.writeBlock(writer, encrypted);
-
-        if (bytes_read < 8) break;
-    }
+    const ctx = try utils.BlowfishContext.init(key);
+    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
 pub fn decrypt(_: *Blowfish, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len < 4 or key.len > 56) return error.InvalidKeyLength;
 
-    var ctx = try utils.BlowfishContext.init(key);
-    var prev_block: ?[8]u8 = null;
-    var buffer: [8]u8 = undefined;
+    const ctx = try utils.BlowfishContext.init(key);
+    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+}
 
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const amt = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
-        if (amt == 0) break;
-        if (amt != 8) return error.InvalidCiphertextLength;
+fn encryptBlockFn(ctx: utils.BlowfishContext, block: *[8]u8) void {
+    const val = utils.bytesToBlock(block);
+    const enc = ctx.encryptBlock(val);
+    block.* = utils.blockToBytes(enc);
+}
 
-        const block = utils.bytesToBlock(&buffer);
-        const decrypted = ctx.decryptBlock(block);
-        const current_decrypted = utils.blockToBytes(decrypted);
-
-        // Write previous block if it exists (buffering for padding removal)
-        if (prev_block) |prev| {
-            try writer.writeAll(&prev);
-        }
-        prev_block = current_decrypted;
-    }
-
-    // Handle PKCS#7 padding removal on the last block
-    if (prev_block) |last| {
-        const pad_val = last[7];
-        if (pad_val == 0 or pad_val > 8) return error.InvalidPadding;
-
-        // Verify padding integrity
-        for (8 - pad_val..8) |i| {
-            if (last[i] != pad_val) return error.InvalidPadding;
-        }
-        try writer.writeAll(last[0 .. 8 - pad_val]);
-    }
+fn decryptBlockFn(ctx: utils.BlowfishContext, block: *[8]u8) void {
+    const val = utils.bytesToBlock(block);
+    const dec = ctx.decryptBlock(val);
+    block.* = utils.blockToBytes(dec);
 }
 
 test "Blowfish encryption/decryption" {

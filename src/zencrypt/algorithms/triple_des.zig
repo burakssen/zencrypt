@@ -1,8 +1,10 @@
 const std = @import("std");
-
 const utils = @import("utils/triple_des.zig");
+const common = @import("common.zig");
 
 const TripleDes = @This();
+
+const Core = common.BlockCipher(8);
 
 pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
     if (key.len != 24) return error.InvalidKeyLength; // 3DES requires 24 bytes (192 bits)
@@ -16,48 +18,8 @@ pub fn encrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     const sk2 = utils.des.generateSubkeys(k2);
     const sk3 = utils.des.generateSubkeys(k3);
 
-    var buffer: [8]u8 = undefined;
-
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const bytes_read = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
-
-        if (bytes_read == 0) {
-            // Apply Padding (PKCS#7) for empty last block
-            @memset(&buffer, 8);
-            var block: u64 = 0;
-            for (buffer, 0..) |byte, i| block |= @as(u64, byte) << @intCast(56 - i * 8);
-
-            const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
-            for (0..8) |i| try writer.writeByte(@intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF));
-
-            break;
-        }
-
-        if (bytes_read < 8) {
-            // Apply Padding (PKCS#7)
-            const pad_val: u8 = @intCast(8 - bytes_read);
-            for (bytes_read..8) |i| {
-                buffer[i] = pad_val;
-            }
-        }
-
-        var block: u64 = 0;
-        for (buffer, 0..) |byte, i| {
-            block |= @as(u64, byte) << @intCast(56 - i * 8);
-        }
-
-        // 3DES Encrypt
-        const encrypted = utils.processBlock3DES(block, sk1, sk2, sk3, false);
-
-        for (0..8) |i| {
-            const byte: u8 = @intCast((encrypted >> @intCast(56 - i * 8)) & 0xFF);
-            try writer.writeByte(byte);
-        }
-
-        if (bytes_read < 8) break;
-    }
+    const ctx = TripleDesContext{ .sk1 = sk1, .sk2 = sk2, .sk3 = sk3 };
+    try Core.encrypt(reader, writer, ctx, encryptBlockFn);
 }
 
 pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, key: []const u8) !void {
@@ -71,48 +33,28 @@ pub fn decrypt(_: *TripleDes, reader: *std.Io.Reader, writer: *std.Io.Writer, ke
     const sk2 = utils.des.generateSubkeys(k2);
     const sk3 = utils.des.generateSubkeys(k3);
 
-    var prev_block: ?[8]u8 = null;
-    var buffer: [8]u8 = undefined;
+    const ctx = TripleDesContext{ .sk1 = sk1, .sk2 = sk2, .sk3 = sk3 };
+    try Core.decrypt(reader, writer, ctx, decryptBlockFn);
+}
 
-    while (true) {
-        var buffer_writer: std.Io.Writer = .fixed(&buffer);
-        const amt = reader.stream(&buffer_writer, .limited(8)) catch |err|
-            if (err == error.EndOfStream) 0 else return err;
+const TripleDesContext = struct {
+    sk1: [16]u48,
+    sk2: [16]u48,
+    sk3: [16]u48,
+};
 
-        if (amt == 0) break;
-        if (amt != 8) return error.InvalidCiphertextLength;
+fn encryptBlockFn(ctx: TripleDesContext, block: *[8]u8) void {
+    var b: u64 = 0;
+    for (block, 0..) |byte, i| b |= @as(u64, byte) << @intCast(56 - i * 8);
+    const enc = utils.processBlock3DES(b, ctx.sk1, ctx.sk2, ctx.sk3, false);
+    for (0..8) |i| block[i] = @intCast((enc >> @intCast(56 - i * 8)) & 0xFF);
+}
 
-        var block: u64 = 0;
-        for (buffer, 0..) |byte, i| {
-            block |= @as(u64, byte) << @intCast(56 - i * 8);
-        }
-
-        // 3DES Decrypt
-        const decrypted = utils.processBlock3DES(block, sk1, sk2, sk3, true);
-
-        var current_decrypted: [8]u8 = undefined;
-        for (0..8) |i| {
-            current_decrypted[i] = @intCast((decrypted >> @intCast(56 - i * 8)) & 0xFF);
-        }
-
-        if (prev_block) |prev| {
-            try writer.writeAll(&prev);
-        }
-
-        prev_block = current_decrypted;
-    }
-
-    if (prev_block) |last| {
-        // Validate and Remove Padding (PKCS#7)
-        const pad_val = last[7];
-        if (pad_val == 0 or pad_val > 8) return error.InvalidPadding;
-
-        for (8 - pad_val..8) |i| {
-            if (last[i] != pad_val) return error.InvalidPadding;
-        }
-
-        try writer.writeAll(last[0 .. 8 - pad_val]);
-    }
+fn decryptBlockFn(ctx: TripleDesContext, block: *[8]u8) void {
+    var b: u64 = 0;
+    for (block, 0..) |byte, i| b |= @as(u64, byte) << @intCast(56 - i * 8);
+    const dec = utils.processBlock3DES(b, ctx.sk1, ctx.sk2, ctx.sk3, true);
+    for (0..8) |i| block[i] = @intCast((dec >> @intCast(56 - i * 8)) & 0xFF);
 }
 
 test "TripleDES encryption/decryption" {
