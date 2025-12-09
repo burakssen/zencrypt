@@ -49,7 +49,7 @@ pub const Impl = union(CryptorType) {
     Salsa20: algorithms.Salsa20,
     ChaCha20: algorithms.ChaCha20,
     XChaCha20: void,
-    XChaCha20Poly1305: void,
+    XChaCha20Poly1305: algorithms.XChaCha20Poly1305,
 };
 
 const Cryptor = @This();
@@ -74,7 +74,7 @@ pub fn init(allocator: std.mem.Allocator, cryptor_type: CryptorType) !Cryptor {
         .Salsa20 => Cryptor.Impl{ .Salsa20 = algorithms.Salsa20.init(allocator) },
         .ChaCha20 => Cryptor.Impl{ .ChaCha20 = algorithms.ChaCha20.init(allocator) },
         .XChaCha20 => .XChaCha20,
-        .XChaCha20Poly1305 => .XChaCha20Poly1305,
+        .XChaCha20Poly1305 => Cryptor.Impl{ .XChaCha20Poly1305 = algorithms.XChaCha20Poly1305.init(allocator) },
     };
 
     return Cryptor{
@@ -114,7 +114,8 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
         .Blowfish => |*blowfish| return blowfish.encrypt(reader, writer, derived_key.key),
         .Salsa20 => |*salsa20| return salsa20.encrypt(reader, writer, derived_key.key),
         .ChaCha20 => |*chacha20| return chacha20.encrypt(reader, writer, derived_key.key),
-        .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .XChaCha20 => return error.NotImplemented,
+        .XChaCha20Poly1305 => |*xchacha20poly1305| return xchacha20poly1305.encrypt(reader, writer, derived_key.key),
     }
 }
 
@@ -156,7 +157,8 @@ pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []con
         .Blowfish => |*blowfish| return blowfish.decrypt(reader, writer, derived_key.key),
         .Salsa20 => |*salsa20| return salsa20.decrypt(reader, writer, derived_key.key),
         .ChaCha20 => |*chacha20| return chacha20.decrypt(reader, writer, derived_key.key),
-        .XChaCha20, .XChaCha20Poly1305 => return error.NotImplemented,
+        .XChaCha20 => return error.NotImplemented,
+        .XChaCha20Poly1305 => |*xchacha20poly1305| return xchacha20poly1305.decrypt(reader, writer, derived_key.key),
     }
 }
 

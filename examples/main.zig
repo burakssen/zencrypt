@@ -4,9 +4,9 @@ const ze = @import("zencrypt");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .Salsa20);
+    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .XChaCha20Poly1305);
 
-    const data = "Hello, Zig!" ** 10000000;
+    const data = "Hello, Zig!" ** 100000;
 
     //std.debug.print("Original Data: {s}\n", .{data});
 

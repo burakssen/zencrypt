@@ -8,3 +8,4 @@ pub const Xtea = @import("xtea.zig");
 pub const Blowfish = @import("blowfish.zig");
 pub const Salsa20 = @import("salsa20.zig");
 pub const ChaCha20 = @import("chacha20.zig");
+pub const XChaCha20Poly1305 = @import("xchacha20poly1305.zig");
