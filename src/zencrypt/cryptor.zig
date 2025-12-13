@@ -119,7 +119,7 @@ pub fn encrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, p
     }
 }
 
-pub fn decrypt(self: *Cryptor, reader: anytype, writer: anytype, password: []const u8) !void {
+pub fn decrypt(self: *Cryptor, reader: *std.Io.Reader, writer: *std.Io.Writer, password: []const u8) !void {
     // 1. Handle .None immediately (No salt read, no key derivation)
     if (self.impl == .None) {
         _ = try reader.stream(writer, .unlimited);

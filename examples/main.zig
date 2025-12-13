@@ -4,11 +4,11 @@ const ze = @import("zencrypt");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .XChaCha20Poly1305);
+    var cryptor: ze.Cryptor = try ze.Cryptor.init(allocator, .ChaCha20);
 
     const data = "Hello, Zig!" ** 100000;
 
-    //std.debug.print("Original Data: {s}\n", .{data});
+    std.debug.print("Original Data: {s}\n", .{data});
 
     var reader: std.Io.Reader = .fixed(data);
     var writer: std.Io.Writer.Allocating = .init(allocator);
@@ -19,7 +19,7 @@ pub fn main() !void {
     try cryptor.encrypt(&reader, &writer.writer, password);
 
     const encrypted_data = writer.written();
-    //std.debug.print("Encrypted Data: {s}\n", .{encrypted_data});
+    std.debug.print("Encrypted Data: {s}\n", .{encrypted_data});
 
     var decrypt_reader: std.Io.Reader = .fixed(encrypted_data);
     var decrypt_writer: std.Io.Writer.Allocating = .init(allocator);
@@ -27,6 +27,6 @@ pub fn main() !void {
 
     try cryptor.decrypt(&decrypt_reader, &decrypt_writer.writer, password);
 
-    _ = decrypt_writer.written();
-    //std.debug.print("Decrypted Data: {s}\n", .{decrypted_data});
+    const decrypted_data = decrypt_writer.written();
+    std.debug.print("Decrypted Data: {s}\n", .{decrypted_data});
 }
