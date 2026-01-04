@@ -36,10 +36,9 @@ pub fn BlockCipher(comptime block_size: usize) type {
             var index: usize = 0;
 
             // Read all blocks
+            var buffer: [block_size]u8 = undefined;
             while (true) {
-                var buffer: [block_size]u8 = undefined;
-                var buffer_writer: std.Io.Writer = .fixed(&buffer);
-                const bytes_read = reader.stream(&buffer_writer, .limited(block_size)) catch |err|
+                const bytes_read = reader.readSliceShort(&buffer) catch |err|
                     if (err == error.EndOfStream) 0 else return err;
 
                 if (bytes_read == 0) {
@@ -110,10 +109,9 @@ pub fn BlockCipher(comptime block_size: usize) type {
             var index: usize = 0;
 
             // Read all blocks
+            var buffer: [block_size]u8 = undefined;
             while (true) {
-                var buffer: [block_size]u8 = undefined;
-                var buffer_writer: std.Io.Writer = .fixed(&buffer);
-                const bytes_read = reader.stream(&buffer_writer, .limited(block_size)) catch |err|
+                const bytes_read = reader.readSliceShort(&buffer) catch |err|
                     if (err == error.EndOfStream) 0 else return err;
 
                 if (bytes_read == 0) break;
@@ -205,10 +203,9 @@ pub fn AeadStreamCipher(comptime nonce_size: usize, comptime tag_size: usize, co
             var counter: u32 = 0;
 
             // Read all chunks
+            var buffer: [chunk_size]u8 = undefined;
             while (true) {
-                var buffer: [chunk_size]u8 = undefined;
-                var w: std.Io.Writer = .fixed(&buffer);
-                const bytes_read = reader.stream(&w, .limited(chunk_size)) catch |err|
+                const bytes_read = reader.readSliceShort(&buffer) catch |err|
                     if (err == error.EndOfStream) 0 else return err;
 
                 if (bytes_read == 0) break;
@@ -272,10 +269,10 @@ pub fn AeadStreamCipher(comptime nonce_size: usize, comptime tag_size: usize, co
             var counter: u32 = 0;
 
             // Read all chunks
+            var read_buffer: [chunk_size + tag_size]u8 = undefined;
+
             while (true) {
-                var read_buffer: [chunk_size + tag_size]u8 = undefined;
-                var w: std.Io.Writer = .fixed(&read_buffer);
-                const bytes_read = reader.stream(&w, .limited(chunk_size + tag_size)) catch |err|
+                const bytes_read = reader.readSliceShort(&read_buffer) catch |err|
                     if (err == error.EndOfStream) 0 else return err;
 
                 if (bytes_read == 0) break;
