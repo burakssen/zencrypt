@@ -1,7 +1,8 @@
 const std = @import("std");
 
-const CHUNK_SIZE: usize = 64 * 1024; // 64KB chunks
-const MAX_INFLIGHT: usize = 8; // chunks in flight at once
+const CHUNK_SIZE: usize = 64 * 1024;
+const MAX_INFLIGHT: usize = 32;
+const KDF_PARAMS = std.crypto.pwhash.scrypt.Params{ .ln = 15, .r = 8, .p = 1 };
 
 pub fn Cipher(comptime C: type) type {
     return struct {
@@ -50,43 +51,70 @@ pub fn Cipher(comptime C: type) type {
         allocator: std.mem.Allocator,
         key: [32]u8,
         salt: [32]u8,
+        has_key: bool,
         password: []const u8,
+        // Heap-allocated so it is never moved after init
+        pool: *std.Thread.Pool,
 
         pub fn init(allocator: std.mem.Allocator, password: []const u8) !Self {
-            var salt: [32]u8 = undefined;
-            std.crypto.random.bytes(&salt);
-            var key: [32]u8 = undefined;
-            try std.crypto.pwhash.scrypt.kdf(
-                allocator,
-                &key,
-                password,
-                &salt,
-                .{ .ln = 15, .r = 8, .p = 1 },
-            );
-            // Dupe password so we can re-derive the key during decrypt
-            const owned_password = try allocator.dupe(u8, password);
-            return Self{ .allocator = allocator, .key = key, .salt = salt, .password = owned_password };
+            return initCommon(allocator, password);
         }
 
-        pub fn deinit(self: *Self) void {
-            self.allocator.free(self.password);
+        pub fn initForDecrypt(allocator: std.mem.Allocator, password: []const u8) !Self {
+            return initCommon(allocator, password);
         }
 
         pub fn initFromPassword(allocator: std.mem.Allocator, password: []const u8, salt: [32]u8) !Self {
-            var key: [32]u8 = undefined;
-            try std.crypto.pwhash.scrypt.kdf(
-                allocator,
-                &key,
-                password,
-                &salt,
-                .{ .ln = 15, .r = 8, .p = 1 },
-            );
+            var self = try initCommon(allocator, password);
+            errdefer self.deinit();
+            try self.ensureKeyForSalt(salt);
+            return self;
+        }
+
+        fn initCommon(allocator: std.mem.Allocator, password: []const u8) !Self {
             const owned_password = try allocator.dupe(u8, password);
-            return Self{ .allocator = allocator, .key = key, .salt = salt, .password = owned_password };
+            errdefer allocator.free(owned_password);
+
+            const pool = try allocator.create(std.Thread.Pool);
+            errdefer allocator.destroy(pool);
+            try pool.init(.{ .allocator = allocator });
+
+            return Self{
+                .allocator = allocator,
+                .key = undefined,
+                .salt = undefined,
+                .has_key = false,
+                .password = owned_password,
+                .pool = pool,
+            };
+        }
+
+        fn ensureKeyForSalt(self: *Self, salt: [32]u8) !void {
+            if (self.has_key and std.mem.eql(u8, &self.salt, &salt)) return;
+
+            try std.crypto.pwhash.scrypt.kdf(
+                self.allocator,
+                &self.key,
+                self.password,
+                &salt,
+                KDF_PARAMS,
+            );
+            self.salt = salt;
+            self.has_key = true;
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.pool.deinit();
+            self.allocator.destroy(self.pool);
+            self.allocator.free(self.password);
         }
 
         pub fn encrypt(self: *Self, reader: *std.Io.Reader, writer: *std.Io.Writer) !void {
-            try writer.writeAll(&self.salt);
+            var encrypt_salt: [32]u8 = undefined;
+            std.crypto.random.bytes(&encrypt_salt);
+            try self.ensureKeyForSalt(encrypt_salt);
+
+            try writer.writeAll(&encrypt_salt);
 
             var jobs: [MAX_INFLIGHT]EncryptJob = undefined;
             for (&jobs) |*job| {
@@ -99,10 +127,6 @@ pub fn Cipher(comptime C: type) type {
                 self.allocator.free(job.plaintext);
                 self.allocator.free(job.ciphertext);
             };
-
-            var pool: std.Thread.Pool = undefined;
-            try pool.init(.{ .allocator = self.allocator });
-            defer pool.deinit();
 
             var wg: std.Thread.WaitGroup = .{};
             var head: usize = 0;
@@ -132,7 +156,7 @@ pub fn Cipher(comptime C: type) type {
                     std.crypto.random.bytes(&job.nonce);
 
                     wg.start();
-                    try pool.spawn(struct {
+                    try self.pool.spawn(struct {
                         fn call(j: *EncryptJob, w: *std.Thread.WaitGroup) void {
                             defer w.finish();
                             j.run();
@@ -165,19 +189,9 @@ pub fn Cipher(comptime C: type) type {
         }
 
         pub fn decrypt(self: *Self, reader: *std.Io.Reader, writer: *std.Io.Writer) !void {
-            // Read the salt that was written by encrypt
             var salt: [32]u8 = undefined;
             try reader.readSliceAll(&salt);
-
-            // Re-derive the key using the stored password and the salt from the stream
-            try std.crypto.pwhash.scrypt.kdf(
-                self.allocator,
-                &self.key,
-                self.password,
-                &salt,
-                .{ .ln = 15, .r = 8, .p = 1 },
-            );
-            self.salt = salt;
+            try self.ensureKeyForSalt(salt);
 
             var jobs: [MAX_INFLIGHT]DecryptJob = undefined;
             for (&jobs) |*job| {
@@ -190,10 +204,6 @@ pub fn Cipher(comptime C: type) type {
                 self.allocator.free(job.plaintext);
                 self.allocator.free(job.ciphertext);
             };
-
-            var pool: std.Thread.Pool = undefined;
-            try pool.init(.{ .allocator = self.allocator });
-            defer pool.deinit();
 
             var wg: std.Thread.WaitGroup = .{};
             var head: usize = 0;
@@ -226,7 +236,7 @@ pub fn Cipher(comptime C: type) type {
                     try reader.readSliceAll(job.ciphertext[0..chunk_len]);
 
                     wg.start();
-                    try pool.spawn(struct {
+                    try self.pool.spawn(struct {
                         fn call(j: *DecryptJob, w: *std.Thread.WaitGroup) void {
                             defer w.finish();
                             j.run();
