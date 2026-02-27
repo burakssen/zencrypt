@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     const stress_scale = b.option(u32, "stress-scale", "Workload scaling factor for stress tests") orelse 1;
     const stress_min_throughput_mib = b.option(f64, "stress-min-throughput-mib", "Minimum required performance phase throughput in MiB/s") orelse 20.0;
 
-    const lib_mod = b.createModule(.{
+    const lib_mod = b.addModule("zencrypt", .{
         .root_source_file = b.path("src/zencrypt.zig"),
         .target = target,
         .optimize = optimize,
@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const stress_debug_mod = b.createModule(.{
-        .root_source_file = b.path("src/stress.zig"),
+        .root_source_file = b.path("testing/stress.zig"),
         .target = target,
         .optimize = .Debug,
         .imports = &.{
