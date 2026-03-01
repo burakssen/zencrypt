@@ -57,21 +57,6 @@ pub fn Cipher(comptime C: type) type {
         pool: *std.Thread.Pool,
 
         pub fn init(allocator: std.mem.Allocator, password: []const u8) !Self {
-            return initCommon(allocator, password);
-        }
-
-        pub fn initForDecrypt(allocator: std.mem.Allocator, password: []const u8) !Self {
-            return initCommon(allocator, password);
-        }
-
-        pub fn initFromPassword(allocator: std.mem.Allocator, password: []const u8, salt: [32]u8) !Self {
-            var self = try initCommon(allocator, password);
-            errdefer self.deinit();
-            try self.ensureKeyForSalt(salt);
-            return self;
-        }
-
-        fn initCommon(allocator: std.mem.Allocator, password: []const u8) !Self {
             const owned_password = try allocator.dupe(u8, password);
             errdefer allocator.free(owned_password);
 

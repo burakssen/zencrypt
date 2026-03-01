@@ -198,7 +198,7 @@ fn workerMain(ctx: *WorkerContext) void {
     };
     defer aes_encryptor.deinit();
 
-    var aes_decryptor = zencrypt.ZEncrypt.initForDecrypt(allocator, .aes, PASSWORD) catch |err| {
+    var aes_decryptor = zencrypt.ZEncrypt.init(allocator, .aes, PASSWORD) catch |err| {
         ctx.shared.recordFailure(ctx.id, "init-aes-decryptor", err, .aes, "n/a");
         return;
     };
@@ -210,7 +210,7 @@ fn workerMain(ctx: *WorkerContext) void {
     };
     defer xchacha_encryptor.deinit();
 
-    var xchacha_decryptor = zencrypt.ZEncrypt.initForDecrypt(allocator, .xchacha20, PASSWORD) catch |err| {
+    var xchacha_decryptor = zencrypt.ZEncrypt.init(allocator, .xchacha20, PASSWORD) catch |err| {
         ctx.shared.recordFailure(ctx.id, "init-xchacha-decryptor", err, .xchacha20, "n/a");
         return;
     };

@@ -20,13 +20,6 @@ pub const ZEncrypt = union(ZEncryptType) {
         };
     }
 
-    pub fn initForDecrypt(allocator: std.mem.Allocator, T: ZEncryptType, password: []const u8) !ZEncrypt {
-        return switch (T) {
-            .aes => .{ .aes = try Aes.initForDecrypt(allocator, password) },
-            .xchacha20 => .{ .xchacha20 = try XChaCha20.initForDecrypt(allocator, password) },
-        };
-    }
-
     pub fn encrypt(self: *ZEncrypt, reader: *std.Io.Reader, writer: *std.Io.Writer) !void {
         switch (self.*) {
             inline else => |*alg| try alg.encrypt(reader, writer),
@@ -118,7 +111,7 @@ test "decrypt-only initialization roundtrip" {
     var in_stream: std.Io.Reader = .fixed(message);
     try encryptor.encrypt(&in_stream, &encrypted_buf.writer);
 
-    var decryptor = try ZEncrypt.initForDecrypt(allocator, .aes, "decrypt-only-password");
+    var decryptor = try ZEncrypt.init(allocator, .aes, "decrypt-only-password");
     defer decryptor.deinit();
 
     var encrypted_stream: std.Io.Reader = .fixed(encrypted_buf.written());
@@ -155,26 +148,23 @@ test "tampered ciphertext is rejected" {
     const allocator = std.testing.allocator;
     const message = "tamper me";
 
-    var encryptor = try ZEncrypt.init(allocator, .aes, "tamper-password");
-    defer encryptor.deinit();
+    var zencrypt = try ZEncrypt.init(allocator, .aes, "tamper-password");
+    defer zencrypt.deinit();
 
     var encrypted_buf: std.Io.Writer.Allocating = .init(allocator);
     defer encrypted_buf.deinit();
     var in_stream: std.Io.Reader = .fixed(message);
-    try encryptor.encrypt(&in_stream, &encrypted_buf.writer);
+    try zencrypt.encrypt(&in_stream, &encrypted_buf.writer);
 
     var tampered = try allocator.dupe(u8, encrypted_buf.written());
     defer allocator.free(tampered);
     tampered[tampered.len - 1] ^= 0x01;
 
-    var decryptor = try ZEncrypt.initForDecrypt(allocator, .aes, "tamper-password");
-    defer decryptor.deinit();
-
     var tampered_stream: std.Io.Reader = .fixed(tampered);
     var out_buf: std.Io.Writer.Allocating = .init(allocator);
     defer out_buf.deinit();
 
-    decryptor.decrypt(&tampered_stream, &out_buf.writer) catch {
+    zencrypt.decrypt(&tampered_stream, &out_buf.writer) catch {
         return;
     };
 
@@ -199,7 +189,7 @@ test "legacy-format fixture decrypts" {
         0xbf, 0x33, 0xda, 0x3f, 0x43, 0x31,
     };
 
-    var decryptor = try ZEncrypt.initForDecrypt(allocator, .aes, fixture_password);
+    var decryptor = try ZEncrypt.init(allocator, .aes, fixture_password);
     defer decryptor.deinit();
 
     var in_stream: std.Io.Reader = .fixed(&fixture_ciphertext);
